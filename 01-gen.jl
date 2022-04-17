@@ -1,5 +1,6 @@
 using Distributed
 @show nprocs()
+@everywhere using Revise
 @everywhere using Opaac
 @everywhere using Distributions
 @everywhere using Random
@@ -17,28 +18,32 @@ using Distributed
     n, m = x.n, x.m
     
     fn = "instances/inst-$n-$m.txt"
-    # mps_fn = "partials/inst-n_$n-m_$m-iter_"
-    mps_fn = nothing
-    isfile(fn) && return
+    
+    # isfile(fn) && return
     
     lg = mk_land_graph(n, n; cap_range=cap_range, cost_range=cost_range)
     Random.seed!(1923)
     
     now = time()
-    # @time gen_instance(lg, m; vol_range=vol_range, fn=mps_fn)
-    
-    D = gen_instance_alt(lg, m; vol_range=vol_range, fn=mps_fn)
+    lg, D = gen_instance(lg, m, 5, vol_range, cap_range)
     old_time = time() - now
     inst = Instance(lg, D, upload_cost, download_cost, air_cap)
     write_instance(fn, inst)
-    println("n: ", n, " m: ", m, " |D|: ", length(D), " t: ", old_time)
+    @assert load_instance(fn) == inst
+    
+    now = time()
+    state = init_solve_land(D, lg)
+    @assert termination_status(state.model) == MOI.OPTIMAL
+    solve_time = time() - now
+
+    println("n: ", n, " m: ", m, " |D|: ", length(D), " t: ", old_time, " ", solve_time)
     nothing
 end
 function main()
     mkpath("instances")
     mkpath("partials")
     data = [(n=n, m=m) 
-        for m in [500] for n in [6, 11, 21, 51, 101]]
+        for m in [10, 100, 500, 1000] for n in [6, 11, 21, 51, 101]]
     pmap(f, data)
 end
 main()

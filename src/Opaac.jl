@@ -1,11 +1,11 @@
 module Opaac
-
+using StatsBase
 using Graphs
 using LinearAlgebra
 using StaticGraphs
 using CPLEX
 using SparseArrays
-
+using Distributions
 using MetaGraphs
 using JuMP
 using Gurobi
@@ -90,7 +90,8 @@ function write_instance(fn, inst::Instance)
             println(fd, v, " ", lg[v, :x], " ", lg[v, :y])
         end
         for e in E(lg)
-            println(fd, src(e), " ", dst(e), " ", lg[e, :length], " ", lg[e, :cap], " ",  lg[e, :cost])
+            println(fd, src(e), " ", dst(e), " ", 
+            lg[e, :length], " ", lg[e, :cap], " ",  lg[e, :cost])
         end
         for d in D
             println(fd, d.o, " ", d.d, " ", d.v)
@@ -101,8 +102,7 @@ end
 
 readL(fd, type=Int) = parse.(type, split(readline(fd)))
 
-function load_instance(fn)
-    open(fn, "r") do fd
+load_instance(fn) = open(fn, "r") do fd
         nD, nvlg, nelg = readL(fd) 
         upload_cost, download_cost, air_cap = readL(fd)
 
@@ -128,7 +128,33 @@ function load_instance(fn)
         end
         Instance(lg, D, upload_cost, download_cost, air_cap)
     end
-end
+
+
+
+load_planar(fn) = open(fn, "r") do fd
+        nvlg, = readL(fd)
+        nelg, = readL(fd)
+        lD, = readL(fd)
+        lg = MetaDiGraph(nvlg)
+        for i in 1:nvlg
+            lg[i, :x] = sin(2 * i / nvlg * π) + 2
+            lg[i, :y] = cos(2 * i / nvlg * π) + 2
+        end
+        for _ in 1:nelg
+            x, y, co, ca = readL(fd)
+            add_edge!(lg, x, y)
+            lg[x, y, :cost] = co
+            lg[x, y, :cap] = ca
+        end
+        D = Vector{Demand}()
+        sizehint!(D, lD)
+        for _ in 1:lD
+            o, d, v = readL(fd)
+            push!(D, Demand(o, d, v))
+        end
+        lg, D
+    end
+    
 
 function add_land_edge(graph, a, b, cap_range, cost_range) 
     add_edge!(graph, a, b)
@@ -167,113 +193,97 @@ function graph_sparse_weight(g; key=:time, n=nv(g))
     w
 end
 
-
-function gen_instance(lg, max_instance_comodity; retry0=5, vol_range, feas_only=true, 
-    state = init_solve_land(max_instance_comodity, lg; feas_only=feas_only),
-    fn = nothing)
-    model = state.model
-    demands = Dict{Tuple{Int, Int}, Tuple{Demand, Int}}()
-    retry = retry0
-    iter = 0
-
-    while retry > 0 && length(demands) < max_instance_comodity
-        iter += 1
-        o, d = rand(1:nv(lg)), rand(1:nv(lg) - 1)
-        if d >= o
-            d += 1
-        end
-        v = ceil(Int, rand(vol_range))
-        
-        if (o, d) ∈ keys(demands)
-            old_dem, k = demands[(o, d)]
-            dem = Demand(o, d, v + old_dem.v)
-        else
-            dem = Demand(o, d, v)
-            k = length(demands) + 1
-        end
-        
-        set_comodity_demand(state, o, d, dem.v, k)
-
-        optimize!(model)
-        fn !== nothing && GRBwrite(backend(model), fn)
-        
-        if termination_status(model) == MOI.OPTIMAL    
-            demands[(o, d)] = (dem, k)
-            
-        else
-            retry -= 1
-            if (o, d) ∈ keys(demands)
-                set_comodity_demand(state, o, d, old_dem.v, k)
-            else
-                @assert k == length(demands) + 1
-                set_comodity_demand(state, o, d, 0, k)
+function can_reach(g, s, t, visited)
+    s == t && return true
+    reach = fill(false, nv(g))
+    reach[t] = true
+    q = Queue{Int}()
+    enqueue!(q, t)
+    while length(q) > 0
+        u = dequeue!(q)
+        for i in inneighbors(g, u)
+            if i == s
+                return true
+            elseif i ∈ visited
+                continue
+            elseif !reach[i]
+                reach[i] = true
+                enqueue!(q, i) 
             end
         end
-        
-    end
-    
-    optimize!(model)
-    fn !== nothing && GRBwrite(backend(model), fn)
-    
-    [i for (i, _) in values(demands)]
-end
-
-function gen_instance_alt(lg, max_instance_comodity; retry0=5, vol_range,
-    state = init_solve_land(max_instance_comodity, lg; feas_only=true),
-    fn = nothing)
-    model = state.model
-    @variable(model, u >= 0)
-    @objective(model, Max, u)
-
-    
-    demands = Dict{Tuple{Int, Int}, Tuple{Demand, Int}}()
-    retry = retry0
-    iter = 0
-
-    while retry > 0 && length(demands) < max_instance_comodity
-        iter += 1
-        o, d = rand(1:nv(lg)), rand(1:nv(lg) - 1)
-        if d >= o
-            d += 1
-        end
-        v = ceil(Int, rand(vol_range))
-        @assert v > 0
-        dem = Demand(o, d, v)
-        k = length(demands) + 1
-        
-        set_comodity_var(state, o, d, k, u)
-        set_upper_bound(u, v)
-        optimize!(model)
-        
-        @assert termination_status(model) == MOI.OPTIMAL    
-        
-        v = min(floor(Int, value(u) + 1e-6), v)
-        fn !== nothing && GRBwrite(backend(model), fn)
-        
-
-        set_comodity_var(state, o, d, k, u, 0)
-        if v <= 0
-            retry -= 1
-            continue
-        end
-        retry = retry0
-        if (o, d) ∉ keys(demands)
-            demands[(o, d)] = (dem, k)
-            set_comodity_demand(state, o, d, v, k)
-        else
-            old_dem, k = demands[(o, d)]
-            set_comodity_demand(state, o, d, old_dem.v + v, k)
-            demands[(o, d)] = (Demand(o, d, old_dem.v + v), k)
-        end
     end
 
-    optimize!(model)
-    fn !== nothing && GRBwrite(backend(model), fn)
-    
-    
-    [i for (i, _) in values(demands)]
+    return false
+   
 end
-export gen_instance_alt
+
+function edge_dist(g, t)
+    dist = fill(typemax(Int), nv(g))
+    dist[t] = 0
+    q = PriorityQueue{Int, Int}()
+    q[t] = 0
+    while length(q) > 0
+        u = dequeue!(q)
+        nd = dist[u] + 1
+        for i in inneighbors(g, u)
+            if dist[i] > nd
+                dist[i] = nd + 1
+                q[i] = nd
+            end
+        end
+    end
+    dist
+end
+
+function random_walk(g, s, t)
+    w = Int[s]
+    visited = Set{Int}([s])
+    dist = exp.(-10 ./ nv(g) .* edge_dist(g, t))
+    c = s
+    while c != t
+        choices = [i for i in outneighbors(g, c) if i ∉ visited && can_reach(g, i, t, visited)]
+        if length(choices) == 0
+            break
+        end
+        c = sample(choices, Weights(dist[choices]))
+        # c = rand(choices)
+        push!(w, c)
+        push!(visited, c)
+    end
+    w
+end
+function gen_instance(g, n, s, v, d)
+    @assert n <= nv(g) * (nv(g) - 1)
+    D = Dict{Tuple{Int, Int}, Int}()
+    
+    for e in E(g)
+        g[e, :cap] = 0
+    end
+
+    while length(D) < n
+        i, j = rand(1:nv(g)), rand(1:nv(g) - 1)
+        if i <= j
+            j += 1
+        end
+        (i, j) ∈ keys(D) && continue
+        ft = 0
+        for _ in 1:s
+            f = rand(v)
+            ft += f
+            w = random_walk(g, i, j)
+            for (a, b) in make_pair(w)
+                g[a, b, :cap] = g[a, b, :cap] + f
+            end
+        end
+        D[(i, j)] = ft
+    end
+
+    for e in E(g)
+        g[e, :cap] = max(1, ceil(Int, g[e, :cap] * rand(d)))
+    end
+    g, [Demand(k..., v) for (k, v) in D]
+end
+export random_walk
 function new_state(g, src::U, ::AbstractMatrix{T}) where {T,U}
     state = LazyDijkstraState{T,U}(
         src,
@@ -485,6 +495,7 @@ function combgraph(lg, ag, a2l, P)
 end
 
 function mk_grid(x, y)
+    
     graph = MetaDiGraph(x * y)
     for i in 1:x,
         j in 1:y
@@ -552,6 +563,8 @@ function init_solve_land(D::Vector{Demand},
     w_cost::SparseMatrixCSC=graph_sparse_weight(lg, key=:cost),
     adj=make_adj_matrix(lg),
     model = multiflow_gurobi())
+
+    @assert nnz(w_cost) == nnz(w_cap) == nnz(adj)
     K = length(D)
 
     x_ = @variable(model, [1:nnz(adj), 1:K], lower_bound = 0)
@@ -560,11 +573,9 @@ function init_solve_land(D::Vector{Demand},
     cape = [sum_affine(x[k].nzval[i] for k in 1:K) for i in 1:nnz(adj)]
 
     
-    deme = [sum_affine(
-                (-x[k][i, j] for j in ON(lg, i)),
+    deme = [sum_affine((-x[k][i, j] for j in ON(lg, i)),
                 sum_affine(x[k][j, i] for j in IN(lg, i)))
-                for k in 1:K, i=1:nv(lg)
-    ]
+                for k in 1:K, i=1:nv(lg)]
 
     @constraints(model, begin 
         cap_[i=1:nnz(adj)], 
@@ -1113,7 +1124,7 @@ function set_phase2_obj(state)
             for (p, f) in zip(pp, ff)))
     nothing
 end
-function add_path(s)
+function add_path(phase, s)
     new_path = 0
     for (orig, es) in s.group
         state_w = new_state(s.mg, orig, s.w)
@@ -1142,7 +1153,7 @@ function add_path(s)
                 push!(s.p[i], p)
                 push!(s.f[i], f)
 
-                if s.phase == 2
+                if phase == 2
                     set_objective_coefficient(s.model, f, c)
                 end
                 register_path(s, s.dem[i], p, f)
@@ -1158,7 +1169,7 @@ end
 function colgen(state)
     
     model, phase1 = state.model, state.phase1
-
+    phase = 1
     for _ in 1:1000000
         @show maximum(value, phase1)
         if state.phase == 1 && maximum(value, phase1)  < 1e-10
@@ -1168,23 +1179,23 @@ function colgen(state)
             set_phase2_obj(state)        
             fix.(phase1, 0; force=true)
             load_dual(state)
-            state.phase = 2
-        elseif state.phase == 2 # termination critirion
+            phase = 2
+        elseif phase == 2 # termination critirion
             lag_obj(state)  == objective_value(model) && break
         end
 
-        new_path = add_path(state)
+        new_path = add_path(phase, state)
         if new_path == 0            
-            @show state.phase
+            @show phase
             @assert state.w.wl == state.lg.d
             @assert state.w.c == state.lg.cost
 
-            (state.phase != 1 || maximum(value, phase1) > 1) && break
+            (phase != 1 || maximum(value, phase1) > 1) && break
         else
             load_dual(state)
         end
     end
-    @assert state.phase == 2
+    @assert phase == 2
     nothing
 end
 export colgen, init_colgen
