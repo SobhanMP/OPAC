@@ -168,11 +168,10 @@ function graph_sparse_weight(g; key=:time, n=nv(g))
 end
 
 
-function gen_instance(lg, max_instance_comodity; retry0=10, vol_range, feas_only=true, 
-    state = @time init_solve_land(max_instance_comodity, lg; feas_only=feas_only),
+function gen_instance(lg, max_instance_comodity; retry0=5, vol_range, feas_only=true, 
+    state = init_solve_land(max_instance_comodity, lg; feas_only=feas_only),
     fn = nothing)
-    @show lg
-    
+    model = state.model
     demands = Dict{Tuple{Int, Int}, Tuple{Demand, Int}}()
     retry = retry0
     iter = 0
@@ -183,7 +182,7 @@ function gen_instance(lg, max_instance_comodity; retry0=10, vol_range, feas_only
         if d >= o
             d += 1
         end
-        v = rand(vol_range)
+        v = ceil(Int, rand(vol_range))
         
         if (o, d) ∈ keys(demands)
             old_dem, k = demands[(o, d)]
@@ -195,15 +194,14 @@ function gen_instance(lg, max_instance_comodity; retry0=10, vol_range, feas_only
         
         set_comodity_demand(state, o, d, dem.v, k)
 
-        @time optimize!(state.model)
-        fn !== nothing && GRBwrite(backend(model), "$(fn)-$(iter).mps")
+        optimize!(model)
+        fn !== nothing && GRBwrite(backend(model), fn)
         
-        if termination_status(state.model) == MOI.OPTIMAL    
+        if termination_status(model) == MOI.OPTIMAL    
             demands[(o, d)] = (dem, k)
-            @show length(demands)
+            
         else
             retry -= 1
-            @show retry
             if (o, d) ∈ keys(demands)
                 set_comodity_demand(state, o, d, old_dem.v, k)
             else
@@ -214,12 +212,68 @@ function gen_instance(lg, max_instance_comodity; retry0=10, vol_range, feas_only
         
     end
     
-    optimize!(state.model)
+    optimize!(model)
+    fn !== nothing && GRBwrite(backend(model), fn)
     
-    
-    [i for (i, _) in values(demands)], model
+    [i for (i, _) in values(demands)]
 end
 
+function gen_instance_alt(lg, max_instance_comodity; retry0=5, vol_range,
+    state = init_solve_land(max_instance_comodity, lg; feas_only=true),
+    fn = nothing)
+    model = state.model
+    @variable(model, u >= 0)
+    @objective(model, Max, u)
+
+    
+    demands = Dict{Tuple{Int, Int}, Tuple{Demand, Int}}()
+    retry = retry0
+    iter = 0
+
+    while retry > 0 && length(demands) < max_instance_comodity
+        iter += 1
+        o, d = rand(1:nv(lg)), rand(1:nv(lg) - 1)
+        if d >= o
+            d += 1
+        end
+        v = ceil(Int, rand(vol_range))
+        @assert v > 0
+        dem = Demand(o, d, v)
+        k = length(demands) + 1
+        
+        set_comodity_var(state, o, d, k, u)
+        set_upper_bound(u, v)
+        optimize!(model)
+        
+        @assert termination_status(model) == MOI.OPTIMAL    
+        
+        v = min(floor(Int, value(u) + 1e-6), v)
+        fn !== nothing && GRBwrite(backend(model), fn)
+        
+
+        set_comodity_var(state, o, d, k, u, 0)
+        if v <= 0
+            retry -= 1
+            continue
+        end
+        retry = retry0
+        if (o, d) ∉ keys(demands)
+            demands[(o, d)] = (dem, k)
+            set_comodity_demand(state, o, d, v, k)
+        else
+            old_dem, k = demands[(o, d)]
+            set_comodity_demand(state, o, d, old_dem.v + v, k)
+            demands[(o, d)] = (Demand(o, d, old_dem.v + v), k)
+        end
+    end
+
+    optimize!(model)
+    fn !== nothing && GRBwrite(backend(model), fn)
+    
+    
+    [i for (i, _) in values(demands)]
+end
+export gen_instance_alt
 function new_state(g, src::U, ::AbstractMatrix{T}) where {T,U}
     state = LazyDijkstraState{T,U}(
         src,
@@ -430,7 +484,7 @@ function combgraph(lg, ag, a2l, P)
     mg
 end
 
-function mk_land_graph(x, y; cap_range, cost_range)
+function mk_grid(x, y)
     graph = MetaDiGraph(x * y)
     for i in 1:x,
         j in 1:y
@@ -440,7 +494,11 @@ function mk_land_graph(x, y; cap_range, cost_range)
         set_prop!(graph, ind, :y, j * 10)
     end
     @assert all(has_prop(graph, i, :x) for i in 1:(x * y))
-    lg = deepcopy(graph)
+    graph
+end
+
+function mk_land_graph(x, y; cap_range, cost_range)    
+    lg = mk_grid(x, y)
     for i in 1:x,
         j in 1:y
         ind = to_ind(x, y, i , j)
@@ -451,8 +509,9 @@ function mk_land_graph(x, y; cap_range, cost_range)
     end
     lg
 end
+
 function mk_air_graph(x, y, skip)
-    ag = deepcopy(graph)
+    ag = mk_grid(x, y)
     for i in 1:skip:x,
         j in 1:skip:y
         ind = to_ind(x, y, i , j)
@@ -462,11 +521,10 @@ function mk_air_graph(x, y, skip)
         i > skip && add_land_edge(ag, ind, to_ind(x, y, i - skip, j))
         i <= x - skip && add_land_edge(ag, ind, to_ind(x, y, i + skip, j))
     end
-    ag, vp = induced_subgraph(ag, connected_components(ag)[1])
+    ag, vp = induced_subgraph(ag, argmax(length, connected_components(ag)))
     a2l = Dict((i, vp[i]) for i in eachindex(vp))
     
     l2a = Dict(map(reverse, collect(a2l)));
-
    
     ag, a2l, l2a
 end
@@ -482,9 +540,9 @@ multiflow_gurobi() = direct_model(
     optimizer_with_attributes(
         () -> Gurobi.Optimizer(GRB_ENV[]), 
         "OutputFlag" => 0, 
-        "Method" => 1,
-        "NormAdjust" => 2,
-        "Presolve" => 0
+        "Threads" => 8,
+        # "Method" => 1
+        "Method" => 3
         ))
 
 function init_solve_land(D::Vector{Demand},
@@ -564,58 +622,71 @@ function set_comodity_demand(state, o, d, v, k)
     set_normalized_rhs(state.dem[k, o], -v)
     set_normalized_rhs(state.dem[k, d], v)
 end
+function set_comodity_var(state, o, d, k, u, v=1)
+    set_normalized_coefficient(state.dem[k, o], u, v)
+    set_normalized_coefficient(state.dem[k, d], u, -v)
+end
 
-function solve(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, air_cap=1000, L=1_000_000)
+function solve(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, air_cap=1000, L=1_000_000, 
     model = Model(optimizer_with_attributes(
-        () -> Gurobi.Optimizer(GRB_ENV[]), 
-        "TimeLimit" => 600.0))
+    () -> Gurobi.Optimizer(GRB_ENV[]), 
+    "TimeLimit" => 600.0)),
+    lg_adj=make_adj_matrix(lg),
+    ag_adj=make_adj_matrix(ag),
+    lg_cap=graph_sparse_weight(lg, key=:cap),
+    lg_cost=graph_sparse_weight(lg, key=:cost),
+    ag_length=graph_sparse_weight(ag, key=:length))
+    
     K = length(D)
     
     @variables(model, begin
-        x[1:K, i=V(lg), j=ON(lg, i)] >= 0 # land flow
-        y[1:P, 1:K, i=V(ag), j=ON(ag, i)] >= 0 # air flow
-        l[1:P, i=V(ag), j=ON(ag, i)], Bin # pigeon paths
-        sp[1:P, V(ag)], Bin # start node of the pigeon path, the cycles of each pigeon need to contain sp
+        x_[1:ne(lg), 1:K] >= 0 # land flow
+        y_[1:ne(ag), 1:P, 1:K] >= 0 # air flow
+        l_[1:ne(ag), 1:P], Bin # pigeon paths
+        sp[1:P, 1:nv(ag)], Bin # start node of the pigeon path, the cycles of each pigeon need to contain sp
         a[1:P], Bin # pigeon activation
-        u[1:P, 1:K, V(ag)] >= 0 # upload data from job k to pigeon p at air node v
-        d[1:P, 1:K, V(ag)] >= 0 # download
-        U[1:P, V(ag)] # MTZ like potential variable
+        u[1:P, 1:K, 1:nv(ag)] >= 0 # upload data from job k to pigeon p at air node v
+        d[1:P, 1:K, 1:nv(ag)] >= 0 # download
+        U[1:P, 1:nv(ag)], (lower_bound=0, upper_bound=nv(ag)) # MTZ like potential variable
     end)
+    x = besparse(lg_adj, x_)
+    y = besparse(ag_adj, y_)
+    l = besparse(ag_adj, l_)
 
-    
     @constraints(model, begin
             [p=1:P-1], a[p] >= a[p+1] # give solutions order
             
-            [i=V(lg), j=ON(lg, i)], sum(x[k, i, j] for k in 1:K) ≤ lg[i, j][:cap] # land cap
+            [i=1:ne(lg)], sum_affine(x_[k].nzval[i] for k in 1:K) ≤ lg_cap.nzval[i] # land cap
 
-            [p=1:P, i=V(ag), j=ON(ag, i)], l[p, i, j] <= a[p] # cativation  
-            [p=1:P, i=V(ag), j=ON(ag, i)], sum(y[p, k, i, j] for k in 1:K) ≤ l[p, i, j] * air_cap # pigeon data cap
-            [p=1:P], sum(l[p, i, j] * ag[i, j][:length] for i in V(ag) for j in ON(ag, i)) ≤ L # max travel distance
+            [p=1:P, i=1:ne(ag)], l[p].nzval[i] <= a[p] # cativation  
+            [p=1:P, i=1:ne(ag)], 
+            sum_affine(y[p, k].nzval[i] for k in 1:K) ≤ l[p].nzval[i] * air_cap # pigeon data cap
+            [p=1:P], sum_affine(l[p].nzval[i] * ag_length.nzval[i] for i in 1:ne(ag)) ≤ L # max travel distance
 
             [p=1:P, i=V(ag)], 
-                sum(l[p, i, j] for j in ON(ag, i))  == 
-                sum(l[p, j, i] for j in IN(ag, i))  # the pigeon paths should form loops
-            [p=1:P, i=V(ag)], sum(l[p, i, j] for j in ON(ag, i)) <= 1 # loops should be cycles
-            [p=1:P, i=V(ag), j=ON(ag, i)], U[p, i] - U[p, j] + nv(ag) * (l[p, i, j] - 1 - sp[i] - sp[j]) ≤ -1 # mtz potential with variable sp
+            sum_affine(l[p][i, j] for j in ON(ag, i))  == 
+            sum_affine(l[p][j, i] for j in IN(ag, i))  # the pigeon paths should form loops
+            [p=1:P, i=V(ag)], sum(l[p][i, j] for j in ON(ag, i)) <= 1 # loops should be cycles
+            [p=1:P, i=V(ag), j=ON(ag, i)], U[p, i] - U[p, j] + nv(ag) * (l[p][i, j] - 1 - sp[p, i] - sp[p, j]) ≤ -1 # mtz potential with variable sp
 
-            [p=1:P], sum(sp[p, i] for i in V(ag)) <= 1 # there is one starting point
- 
+            [p=1:P], sum_affine(sp[p, i] for i in V(ag)) == a[p] # there is one starting point
             [k=1:K, i=V(lg)], 
                     source_sink(D[k], i) + 
                     uplink(P, l2a, d, u, k, i) +
-                    sum(x[k, j, i] for j in IN(lg, i)) - 
-                    sum(x[k, i, j] for j in ON(lg, i)) == 0
+                    sum_affine(x[k][j, i] for j in IN(lg, i)) - 
+                    sum_affine(x[k][i, j] for j in ON(lg, i)) == 0
             [p=1:P, k=1:K, i=V(ag)],
                 u[p, k, i] -
                 d[p, k, i] +
-                sum(y[p, k, j, i] for j in IN(ag, i)) - 
-                sum(y[p, k, i, j] for j in ON(ag, i)) == 0
+                sum_affine(y[p, k][j, i] for j in IN(ag, i)) - 
+                sum_affine(y[p, k][i, j] for j in ON(ag, i)) == 0
         end)
 
     @objective(model, Min,
-        sum(lg[i, j][:cost] * x[k, i, j] for i in V(lg) for j in ON(lg, i) for k in 1:K) +
-        sum(a) * air_cost + 
-        sum(u)
+        sum_affine(lg_cost.nzval[i] * x[k].nzval[i] for k in 1:K for i in 1:ne(lg)) +
+        sum_affine(a) * air_cost + 
+        sum_affine(u) * uplaod_cost +
+        sum_affine(d) * download_cost
     );
     optimize!(model)
     model
@@ -637,10 +708,10 @@ function mkstate(g)
     end
     (x, y, (1000, 1000), (20, 20)), (1040, 1040)
 end
-function draw_plot(g; vcol=(g, i)->(0, 0, 0, 0.5), ecol=(g, i, j)->(0, 0, 0, 0.5), fil=(g, x, y) -> true, ps=2)
+function draw_plot(g; vcol=(g, i)->(0, 0, 0, 0.5), ecol=(g, i, j)->(0, 0, 0, 0.5), fil=(g, x, y) -> true, ps=2, fn=:png)
     state, img_s = mkstate(g)
     
-    drawing = Drawing(img_s..., :png)
+    drawing = Drawing(img_s..., fn)
     background("white")
     for i in V(g)
         setcolor(vcol(g, i)...)
@@ -677,11 +748,12 @@ uplink(P, l2a, d, u, k, v) = if v ∈ keys(l2a)
 else
     0
 end
-
+# TODO, make non allocating
 function subproblem(D::Vector{Demand}, P, lg, ag, l2a, air_cap, l; 
         ag_adj=make_adj_matrix(ag), 
         lg_adj=make_adj_matrix(lg),
-        ed=[(j, i) for i=V(ag) for j=IN(ag, i)]
+        lg_cap=graph_sparse_weight(lg; key=:cap),
+        lg_cost=graph_sparse_weight(lg; key=:cost)
     )
     # model = Model(optimizer_with_attributes(() -> Gurobi.Optimizer(GRB_ENV), 
     #         "OutputFlag" => 0,
@@ -694,36 +766,35 @@ function subproblem(D::Vector{Demand}, P, lg, ag, l2a, air_cap, l;
     @variables(model, begin
         x_[1:ne(lg), 1:K] >= 0 # land flow
         y_[1:ne(ag), 1:P, 1:K] >= 0 # air flow
-        u[1:P, 1:K, V(ag)] >= 0 # upload data from job k to pigeon p at air node v
-        d[1:P, 1:K, V(ag)] >= 0 # download
+        u[1:P, 1:K, 1:nv(ag)] >= 0 # upload data from job k to pigeon p at air node v
+        d[1:P, 1:K, 1:nv(ag)] >= 0 # download
         
     end)
     y = besparse(ag_adj, y_)
     x = besparse(lg_adj, x_)
     
     @constraints(model, begin
-            [i=V(lg), j=ON(lg, i)], sum(x[k][i, j] for k in 1:K) ≤ lg[i, j][:cap] # land cap
-            [k=1:K, i=V(lg)], 
+            [i=1:ne(lg)], sum_affine(x[k].nzva[i] for k in 1:K) ≤ lg_cap.nzval[i] # land cap
+            [k=1:K, i=1:nv(lg)], 
                 source_sink(D[k], i) + 
                 uplink(P, l2a, d, u, k, i) +
-                sum(x[k][j, i] for j in IN(lg, i)) - 
-                sum(x[k][i, j] for j in ON(lg, i)) == 0
-            [p=1:P, k=1:K, i=V(ag)],
+                sum_affine(x[k][j, i] for j in IN(lg, i)) - 
+                sum_affine(x[k][i, j] for j in ON(lg, i)) == 0
+            [p=1:P, k=1:K, i=1:nv(ag)],
                 u[p, k, i] -
                 d[p, k, i] +
-                sum(y[p, k][j, i] for j in IN(ag, i)) - 
-                sum(y[p, k][i, j] for j in ON(ag, i)) == 0
+                sum_affine(y[p, k][j, i] for j in IN(ag, i)) - 
+                sum_affine(y[p, k][i, j] for j in ON(ag, i)) == 0
             
             con_[i=1:length(ed), p=1:P], 
-                sum(y[p, k][ed[i][1], ed[i][2]] for k in 1:K) ≤ 
+                sum_affine(y[p, k][ed[i][1], ed[i][2]] for k in 1:K) ≤ 
                     l[p][ed[i][1], ed[i][2]] * air_cap # pigeon data cap
         end)
      
         
     @objective(model, Min,
-        sum(lg[i, j][:cost] * x[k][i, j] for i in V(lg) for j in ON(lg, i) for k in 1:K) +
-        
-        sum(u)
+        sum_affine(lg_cost.nzval[i] * x.nzval[i] for k in 1:K for i in 1:ne(lg)) +
+        sum_affine(u)
     );      
     
     optimize!(model)
@@ -747,7 +818,7 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
         l_[1:ne(ag), 1:P], Bin # pigeon paths
         sp[1:P, 1:nv(ag)], Bin # start node of the pigeon path, the cycles of each pigeon need to contain sp
         a[1:P], Bin # pigeon activation
-        U[1:P, 1:nv(ag)] # MTZ like potential variable
+        U[1:P, 1:nv(ag)], (lower_bound=0, upper_bound=nv(ag)) # MTZ like potential variable
         θ >= 0
     end)
     
@@ -757,24 +828,20 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
             # [p=1:P-1], a[p] >= a[p+1] # give solutions order
             [p=1:P, i=V(ag), j=ON(ag, i)], l[p][i, j] <= a[p] # cativation  
             
-            [p=1:P], sum(l[p][i, j] * ag[i, j][:length] for i in V(ag) for j in ON(ag, i)) ≤ L # max travel distance
+            [p=1:P], sum_affine(l[p][i, j] * ag[i, j][:length] for i in V(ag) for j in ON(ag, i)) ≤ L # max travel distance
 
             [p=1:P, i=V(ag)], 
-                sum(l[p][i, j] for j in ON(ag, i))  == 
-                sum(l[p][j, i] for j in IN(ag, i))  # the pigeon paths should form loops
+                sum_affine(l[p][i, j] for j in ON(ag, i))  == 
+                sum_affine(l[p][j, i] for j in IN(ag, i))  # the pigeon paths should form loops
                     
-            [p=1:P, i=V(ag)], sum(l[p][i, j] for j in ON(ag, i)) <= 1 # loops should be cycles
+            [p=1:P, i=V(ag)], sum_affine(l[p][i, j] for j in ON(ag, i)) <= 1 # loops should be cycles
             [p=1:P, i=V(ag), j=ON(ag, i)], U[p, i] - U[p, j] + 
             nv(ag) * (l[p][i, j] - 1 - sp[i] - sp[j]) ≤ -1 # mtz potential with variable sp
 
-            [p=1:P], sum(sp[p, i] for i in V(ag)) <= 1 # there is one starting point
+            [p=1:P], sum_affine(sp[p, i] for i in V(ag)) <= a[p] # there is one starting point
             
         end)
-    l_i = besparse(adj_matrix, 0)[SparseMatrixCSC{Float64, Int}(
-            nv(ag), nv(ag), 
-            adj_matrix.colptr, adj_matrix.rowval, 
-            zeros(ne(ag)))
-        for p=1:P]
+    l_i = [besparse(adj_matrix, 0.0) for _ in 1:P]
     l_k = zeros(ne(ag), P)
     lg_adj = make_adj_matrix(lg)
     function my_callback(cb_data)
@@ -785,14 +852,13 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
                 @assert length(l_i[p].nzval) == length(l_k[:, p])
                 l_i[p].nzval .= (1 - η) .* l_i[p].nzval .+ η .* l_k[:, p]
             end
-            θ_k = callback_value(cb_data, θ) ::Float64
             ret = subproblem(D, P, lg, ag, l2a, air_cap, l_i; ag_adj=adj_matrix, lg_adj=lg_adj)
             
             # @show θ_k, ret.θ, extrema(l_k), dot(ret.π, l_k)
             flush(stdout)
-            cut = @build_constraint(θ >= ret.θ +
-                sum(
-                    air_cap * ret.π[p][i, j] * (l[p][i, j] - l_i[p][i, j])
+            cut = @build_constraint(θ >= 
+                sum_affine(
+                    air_cap * ret.π[p][i, j] * l[p][i, j]
                     for p=1:P for i=V(ag) for j=ON(ag, i)))
             MOI.submit(model, MOI.LazyConstraint(cb_data), cut)
         end
@@ -919,28 +985,32 @@ function split_air(ag, lg, i, j)
     @assert idp == jdp
     idp, irp, jrp
 end
-function init_colgen(D, mg, lg, ag, l, ub)
-    P = length(l)
-    model = direct_model(Gurobi.Optimizer())
-    lg_cap = graph_sparse_weight(lg; key=:cap)
-    lg_adj = make_adj_matrix(lg)
-    lg_cost = graph_sparse_weight(lg; key=:cost)
+@inline float_dual(x) = (dual(x)::Float64)
+function init_colgen(D, mg, lg, ag, l, ub;
+    P = length(l),
+    model = direct_model(Gurobi.Optimizer()),
+    lg_cap = graph_sparse_weight(lg; key=:cap),
+    lg_adj = make_adj_matrix(lg),
+    lg_cost = graph_sparse_weight(lg; key=:cost),
+    ag_adj = make_adj_matrix(ag),
+    air_cap,
+    wc = RC(lg_cost, nv(lg)),
+    # ps = [ford_fulkerson(lg_adj, lg_cap, lg, ag_adj, ag, l, d.o, d.d, d.v, wc, P)[1] for d in D] 
+    ps = [Vector{Int}[] for _ in 1:length(D)])
 
     @variable(model, phase1[i=1:length(D)] >= 0)
 
-    
-    
     @constraint(model, lg_w_[i=1:nnz(lg_cap)], 0 <= lg_cap.nzval[i])
     lg_w = besparse(lg_adj, lg_w_)
     
     @constraint(model, ag_w_[i=1:nnz(ag_adj), p=1:P], 0 <= air_cap * l[p].nzval[i])
     ag_w = besparse(ag_adj, ag_w_)
-    wc = RC(lg_cost, nv(lg))
-    ps = [ford_fulkerson(lg_adj, lg_cap, lg, ag_adj, ag, l, d.o, d.d, d.v, wc, P)[1] for d in D] 
     
-    fs = [@variable(model, [i=1:length(pp)], lower_bound=0) for pp in ps]
-
-    @constraint(model, dem[k=1:length(D)], sum(fs[k]) + phase1[k] == D[k].v)
+    
+    
+    fs = [@variable(model, [1:length(pp)], lower_bound=0) for pp in ps]
+    @show typeof(fs)
+    @constraint(model, dem[k=1:length(D)], sum_affine(fs[k]) + phase1[k] == D[k].v)
     
     for (pp, ff) in zip(ps, fs),
         (p, f) in zip(pp, ff),
@@ -967,7 +1037,8 @@ function init_colgen(D, mg, lg, ag, l, ub)
 
     @assert termination_status(model) == MOI.OPTIMAL
     d_lg_w = besparse(lg_adj, abs.(dual.(lg_w_)))::SparseMatrixCSC{Float64, Int}
-    d_ag_w = besparse(ag_adj, abs.(dual.(ag_w_)))::Vector{SparseMatrixCSC{Float64, Int}}
+    @show dual.(ag_w_)
+    d_ag_w = besparse(ag_adj, abs.(float_dual.(ag_w_))::Matrix{Float64})::Vector{SparseMatrixCSC{Float64, Int}}
     π = dual.(dem)
     w = RWM(deepcopy(lg_cost), d_lg_w, d_ag_w, nv(lg), nv(ag))
     if ub === nothing
@@ -980,7 +1051,7 @@ function init_colgen(D, mg, lg, ag, l, ub)
         push!(e, (i, d))
     end
 
-    (model=model, dem=dem, phase1=phase1, w=w, wc=wc, ub=ub, π=π, f=fs, p=ps, P=P, l=l, 
+    (model=model, dem=dem, phase1=phase1, w=w, wc=wc, ub=ub, π=π, f=fs, p=ps, P=P, l=l, phase=1,
     mg=mg, lg=(
         g=lg,
         cost = lg_cost,
@@ -1042,75 +1113,86 @@ function set_phase2_obj(state)
             for (p, f) in zip(pp, ff)))
     nothing
 end
-function add_path(state)
+function add_path(s)
     new_path = 0
-    for (orig, es) in state.group
-        state_w = new_state(mg, orig, w)
+    for (orig, es) in s.group
+        state_w = new_state(s.mg, orig, s.w)
         for (i, d) in es
-            # @assert d.o == orig
-            e, _ = lazy_dijkstra(mg, d.o, d.d; w=w, state=state_w, 
-            filter=(i, j) -> max(i, j) <= nv(lg) || min(i, j) <= nv(lg) || let (idp, irp, jrp) = split_air(ag, lg, i, j)
-            l[idp][irp, jrp] > 0
-            end)
+            @assert d.o == orig
+            e, _ = lazy_dijkstra(s.mg, d.o, d.d; w=s.w, state=state_w, 
+            filter=(i, j) -> max(i, j) <= s.lg.nv || 
+                min(i, j) <= s.lg.nv || let (idp, irp, jrp) = split_air(s.as.g, s.lg, i, j)
+                l[idp][irp, jrp] > 1e-6
+                end)
 
-            p = dijkstra_to_path(state_w, d.o, d.d, ps[i])
+            p = dijkstra_to_path(state_w, d.o, d.d, 
+            #s.p[i]
+            Vector{Int}[]
+            )
             
-            if p !== nothing
+            if p !== nothing && p ∉ s.p[i]
                 # @assert p ∉ ps[i]
                 # @assert p[1] == D[i].o
                 # @assert p[end] == D[i].d
                 
-                c = path_cost(state.lg.cost, 0, p)
+                c = path_cost(s.lg.cost, 0, p)
                 new_path += 1
 
-                f = @variable(model, lower_bound=0)
-                push!(ps[i], p)
-                push!(fs[i], f)
+                f = @variable(s.model, lower_bound=0)
+                push!(s.p[i], p)
+                push!(s.f[i], f)
 
-                if phase == 2
-                    set_objective_coefficient(model, f, c)
+                if s.phase == 2
+                    set_objective_coefficient(s.model, f, c)
                 end
-                register_path(state, state.dem[i], p, f)
+                register_path(s, s.dem[i], p, f)
             end
         end
     end
     new_path
 end
 
+# TODO test wether we need to check for non existing paths
+# TODO parallelize djikstra
+# TODO return useuful paths
 function colgen(state)
-    phase = 1
+    
     model, phase1 = state.model, state.phase1
 
     for _ in 1:1000000
-        if phase == 1 && maximum(value, phase1)  < 1e-10
+        @show maximum(value, phase1)
+        if state.phase == 1 && maximum(value, phase1)  < 1e-10
             if state.ub === nothing
                 state.w.c.nzval .= state.lg.cost.nzval
             end
             set_phase2_obj(state)        
             fix.(phase1, 0; force=true)
             load_dual(state)
-            phase = 2
-        elseif phase == 2 # termination critirion
+            state.phase = 2
+        elseif state.phase == 2 # termination critirion
             lag_obj(state)  == objective_value(model) && break
         end
 
         new_path = add_path(state)
         if new_path == 0            
-            # @assert state.w.wl == state.lg.d
-            # @assert state.w.c == state.lg.cost
+            @show state.phase
+            @assert state.w.wl == state.lg.d
+            @assert state.w.c == state.lg.cost
 
-            (phase != 1 || maximum(value, phase1) > 1) && break
+            (state.phase != 1 || maximum(value, phase1) > 1) && break
         else
             load_dual(state)
         end
     end
-    # @assert phase == 2
+    @assert state.phase == 2
     nothing
 end
 export colgen, init_colgen
 export master_problem, subproblem
 export init_solve_land, set_comodity_demand
 export solve, make_adj_matrix
+export colgen, init_colgen
 export mk_land_graph, combgraph, mk_air_graph, gen_instance, Demand
 export write_instance, load_instance, Instance
+export draw_plot
 end
