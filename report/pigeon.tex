@@ -20,8 +20,16 @@
 \addbibresource{pigeon.bib}
 \author{Sobhan Mohammadpour}
 \title{OPAC: Optimal Packet over Avian Carriers}
+
+\newcommand\blfootnote[1]{%
+	\begingroup
+	\renewcommand\thefootnote{}\footnote{#1}%
+	\addtocounter{footnote}{-1}%
+	\endgroup
+}
 \begin{document}
 	\maketitle
+	\blfootnote{Code is available at \url{https://github.com/SobhanMP/opaac}}
 	\section{Motivation}
 	
 	Imagine on hot summer day, you need to send a few terabytes of data to a friend that lives down the block, you somehow manage to find a service that allows you to upload that much data and start uploading. However, you realize that the upload is going to take too much time and so decided to just give an external HDD to your friend.
@@ -143,9 +151,9 @@
 		\addConstraint{\theta \geq}{(b - By)^\top  \pi,\label{benders:2:sp}}{\quad  \pi \in \mathcal{P}}
 		\addConstraint{0 \geq }{(b - By)^\top  \pi}{\quad  \pi \in \mathcal{R},}
 	\end{mini!}
- 	where $\mathcal{P}$ and $\mathcal{R}$ are the set of extreme points and extreme rays of (\ref{benders:3:sp}). We note that if $\bar{y}$ is the point where the cut was generated and $\theta^0$ is the objective of the dual (or the dual ray if it is unfeasible), we can write $(b - By)^\top  \pi$ as $\theta^0 - (By - B\bar{y})^\top  \pi$ since $\theta^0 = (b - B\bar{y})^\top \pi$. Since the number of cuts is finite, we can dynamically add those to the problem as need i.e. they become invalidated. The cuts are on the extreme rays are called feasibility cuts and are only needed when the sub-problem is not feasible.The problem that has the benders cut is called the master problem and the problem that is used to generate the cuts is called the sub-problem. 
+ 	where $\mathcal{P}$ and $\mathcal{R}$ are the set of extreme points and extreme rays of (\ref{benders:3:sp}). We note that if $\bar{y}$ is the point where the cut was generated and $\theta^0$ is the objective of the dual (or the dual ray if it is unfeasible), we can write $(b - By)^\top  \pi$ as $\theta^0 - (By - B\bar{y})^\top  \pi$ since $\theta^0 + (B\bar{y})^\top \pi= b^\top \pi$. Since the number of cuts is finite, we can dynamically add those to the problem as needed i.e. when they become invalidated. The cuts are on the extreme rays are called feasibility cuts and are only needed when the sub-problem is not feasible.The problem that has the benders cut is called the master problem and the problem that is used to generate the cuts is called the sub-problem. 
  	
-	While benders original method would add these cuts at integer points, (cite inexact cuts) showed that the cuts can be added even in fractional points. Furthermore, (cite Mangati-Want) showed that if the cuts are generated with a core point and an additional constraint it will be non-dominated. (cite papadakos) showed that the additional constraint is not needed and we can take a moving average of $y^t$ as our core point. The choice of the moving average coefficient greatly changes the performance of the method. We use $l=0.001$ as our core-point.
+	While benders original method would add these cuts at integer points, (cite inexact cuts) showed that the cuts can be added even in fractional points. Furthermore, (cite Mangati-Want) showed that if the cuts are generated with a core point and an additional constraint it will be non-dominated. (cite papadakos) showed that the additional constraint is not needed and we can take a moving average of $y^t$ as our core point. The choice of the moving average coefficient greatly changes the performance of the method. We use $l=0.001$ as our initial core-point and use $\eta=0.5$ as our moving average constant.
 	
 	Our problem is a good candidate for benders decomposition as the constraints (\ref{eqs:flow_land}) and (\ref{eqs:flow_air}) only contain real variables and the constraint (\ref{eqs:air_cap}) is the only linking constraint between the integer and real variables. We note that we keep the $U$ in the master problem. This does not cause any problem on the theoretical level and helps reduce the number of infeasibility cuts. 
     When taking out $x$ and $y$ out of the master problem, we only need to add cuts for the constraints that have integer variables in them (otherwise they will just be zero). In the constraint(\ref{eqs:air_cap}) constraint matrix $B$ is the identity matrix times $q$. The cuts will be in the form of 
@@ -176,7 +184,7 @@
 		\addConstraint{\theta \geq}{\theta^0 - q\sum_{p \in P, e \in A^p} (l^p_e - \bar{l}^p_e) \pi^p_,}{\quad  \pi,\bar{l},\theta^0 \in \mathcal{P}}
 		\addConstraint{0 \geq }{\theta^0 - q\sum_{p \in P, e \in A^p} (l^p_e - \bar{l}^p_e)  \pi^p_e,}{\quad  \pi,\bar{l},\theta^0 \in \mathcal{R},}
 	\end{mini!}
-where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their corresponding objective, 
+where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their corresponding objective and evaluation point, 
 	and the Benders sub-problem is
 		\begin{mini!}[3]
 		{}
@@ -343,6 +351,8 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 		}
 		\caption{Time/duality gap comparison between different approaches. First 3 columns are Benders decomposition, the G denotes that they master problem was solved with Gurobi and the last letter shows what solver solved the sub-problem(C for CPLEX, D for Column Generation on the Dantzig-Wolfe decomposition). If the solver reached optimality, only the time was reported otherwise the time and the GAP was reported (with a time limit of 10 minutes). In all cases $s$ is 5 and $P$ is 1.}
 	\end{table}
+\section{Conclusion}
+We proposed a new benchmark that solvers don't seem to handle very well by default and solved it with Benders and Dantzig-Wolfe decomposition.
 \printbibliography
 \end{document}
 
