@@ -1,5 +1,6 @@
 module OPAC
-using Infiltrator, Cthulhu, StatsBase, Graphs, LinearAlgebra
+# using Infiltrator, Cthulhu
+using StatsBase, Graphs, LinearAlgebra
 using StaticGraphs, CPLEX, SparseArrays, Distributions, MetaGraphs
 using JuMP, Gurobi, DataStructures, Luxor
 

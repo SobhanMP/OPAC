@@ -1,12 +1,12 @@
-using Infiltrator
+# using Infiltrator
 using Serialization
-using Revise
+# using Revise
 using OPAC
 using Graphs
 using Printf
 using MetaGraphs
 using JuMP
-using Cthulhu
+# using Cthulhu
 Revise.errors()
 
 const inst_ind = 1
