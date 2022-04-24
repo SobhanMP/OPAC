@@ -7,7 +7,7 @@ using Printf
 using MetaGraphs
 using JuMP
 # using Cthulhu
-Revise.errors()
+
 const air_cost=1_000
 const air_cap=10_000
 const L=4000
@@ -94,9 +94,6 @@ function show_table(res; show_loss=false)
     ], " & ") * " \\\\ \n"
     for hk in sort(unique([(n=k.n, m=k.m, s=k.s, p=k.p) for k in keys(res)]), by=x->(x.n, x.m, -x.s, x.p))])
 end
-println(show_table(deserialize("runs.jld"); show_loss=false))
-println(show_table(deserialize("runs.jld"); show_loss=true))
-
 
  # warmup
 @time let (inst, P, mg, ag, l2a) = load_inst(inst_list[inst_ind], 5, 3)
@@ -122,7 +119,7 @@ function main(inst_list, fn, res)
                     end
                     @show kn, t
                     res[kn] = (time=t, val=val)
-                    serialize(fn, res)
+                    fn !== nothing && serialize(fn, res)
                 catch e
                     @show e
                 end
@@ -143,7 +140,7 @@ function main(inst_list, fn, res)
                         end
                         @show kn, t
                         res[kn] = (time=t, val=val)
-                        serialize(fn, res)
+                        fn !== nothing && serialize(fn, res)
                     catch e
                         @show e
                     end
@@ -164,7 +161,7 @@ function main(inst_list, fn, res)
                         end
                         @show kn, t
                         res[kn] = (time=t, val=val)
-                        serialize(fn, res)
+                        fn !== nothing && serialize(fn, res)
                     catch e
                         @show e
 
@@ -175,20 +172,28 @@ function main(inst_list, fn, res)
 
         w1 = show_table(deepcopy(res); show_loss=false)
         
-        open(fn *"-t.txt", "w") do fd
-            println(fd, w1)
-        end
+        
         println(w1)
         w2 = show_table(deepcopy(res); show_loss=true)
-        open(fn *"-l.txt", "w") do fd
-            println(fd, w2)
+        if fn !== nothing
+            open(fn *"-t.txt", "w") do fd
+                println(fd, w1)
+            end
+            open(fn *"-l.txt", "w") do fd
+                println(fd, w2)
+            end
         end
-        println(w2)
     end
     res
 end
 
-main(inst_list[[1]], "dump", Dict())
-main(inst_list, "runs.jld", Dict())
+main(inst_list[[1]], nothing, Dict())
+
+main(inst_list, "runs.jld", try
+        deserialize("runs.jld")
+    catch e
+        println("ignoring error ", e)
+        Dict()
+    end)
 
 

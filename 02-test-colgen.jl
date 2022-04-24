@@ -7,7 +7,7 @@ using Printf
 using MetaGraphs
 using JuMP
 # using Cthulhu
-Revise.errors()
+
 
 const inst_ind = 1
 const inst_list = sort(filter(map(readdir("instances")) do x
@@ -26,6 +26,8 @@ function fun_colgen(n, inst, m)
     
     objective_value(colgen_state.model), termination_status(colgen_state.model)
 end
+
+# warmup
 for m in [multiflow_gurobi, multiflow_cplex]
     fun_colgen(inst_list[1].n, load_instance(inst_list[1].fn), m())
     let inst = load_instance(inst_list[1].fn)
@@ -40,9 +42,6 @@ show_table(res; show_loss=false) = join([string(hk.n) * " \t & \t  " * string(hk
             if show_loss
                 @sprintf " %.2e " l.val[1]
             else
-                
-                
-                @show l.val
                 if l.val[2] == MOI.OPTIMAL # optimal
                     @sprintf " %.2f " l.time
                 else
@@ -56,11 +55,10 @@ show_table(res; show_loss=false) = join([string(hk.n) * " \t & \t  " * string(hk
     for i in ["CG", "CC", "G", "C"]], " \t & \t ") * " \\\\ \n"
     for hk in sort(unique([(n=k.n, m=k.m) for k in keys(res)]))])
 
-print(show_table(deserialize("col.jld")))
-print(show_table(deserialize("col.jld"); show_loss=true))
+
 
 function main(fn, res)
-    # warmup
+    
     for i in inst_list
         for (m, mn) in zip([multiflow_gurobi, multiflow_cplex], ["G", "C"])
             key = (mode="C" * mn, n=i.n, m=i.m)
@@ -68,7 +66,7 @@ function main(fn, res)
                 inst = load_instance(i.fn)
                 t = @elapsed val = fun_colgen(i.n, inst, m())
                 res[key] = (i=i, time=t, val=val)
-                serialize(fn, res)
+                fn !== nothing && serialize(fn, res)
             end
             key = (mode=mn, n=i.n, m=i.m)
             if keys ∉ keys(res)
@@ -78,14 +76,22 @@ function main(fn, res)
                     objective_value(state.model), termination_status(state.model)
                 end
                 res[key] = (i=i, time=t, val=state)
-                serialize(fn, res)
+                fn !== nothing && serialize(fn, res)
             end
         end        
         x = show_table(res)
         println(x)
-        open("col-table.txt", "w") do fd
-            println(fd, x)
+        if fn !== nothing
+            open(fn * ".txt", "w") do fd
+                println(fd, x)
+            end
         end
     end
 end
-main("col.jld", Dict())
+
+main("col.jld", try
+    deserialize("col.jld")
+catch e
+    println("ignoring error ", e)
+    Dict()
+end)

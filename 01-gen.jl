@@ -18,7 +18,7 @@ using Distributed
     n, m = x.n, x.m
     
     fn = "instances/inst-$n-$m.txt"
-    
+    @show fn
     isfile(fn) && return
     
     lg = mk_land_graph(n, n; cap_range=cap_range, cost_range=cost_range)
