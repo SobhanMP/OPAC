@@ -1,7 +1,7 @@
 using Distributed
 @show nprocs()
 @everywhere using Revise
-@everywhere using Opaac
+@everywhere using OPAC
 @everywhere using Distributions
 @everywhere using Random
 @everywhere using JuMP

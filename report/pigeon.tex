@@ -29,13 +29,13 @@
 }
 \begin{document}
 	\maketitle
-	\blfootnote{Code is available at \url{https://github.com/SobhanMP/opaac}}
+	\blfootnote{Code is available at \url{https://github.com/SobhanMP/OPAC}}
 	\section{Motivation}
 	
 	Imagine on hot summer day, you need to send a few terabytes of data to a friend that lives down the block, you somehow manage to find a service that allows you to upload that much data and start uploading. However, you realize that the upload is going to take too much time and so decided to just give an external HDD to your friend.
 	
 	
-	Inspired by the IP over Avian protocol  and a story from South Africa \autocite{abellAfricaPigeonTransfers} where the owners of a telecome company sent their data strapped to a pigeon which was much faster than uploading data. 
+	Inspired by the IP over Avian protocol  and a story from South Africa \parencite{abellAfricaPigeonTransfers} where the owners of a telecome company sent their data strapped to a pigeon which was much faster than uploading data. 
 	
 	These days 1TB micro-SD cards are fairly cheap so it's not hard to imagine that someone actually does this. But the real use-case is not necessarily with pigeons but with drones and unmanned airplanes. While normal conditions may not require such a drastic and cumbersome way of communication, in the event of disaster (man-made or otherwise), setting up a mesh network is generally preferred over total lack of networking. In such a mesh network, we want to improve the transfer rate by augmenting the network with a high capacity, high cost and very limited series of agents that can transfer the data by jumping over the nodes in the mesh network.
 	
@@ -89,7 +89,7 @@
 		\item $u^{pk}_i \in \mathbb{R}^+$ and $d^{pk}_i\in \mathbb{R}^+$ are, respectively, the upload amount and download amount of the data from task $k$ to and from the pigeon $p$,
 		\item $l^p_e \in \{0, 1\}$ indicates whether arc $e \in A^p$ is active for pigeon $p \in P$,
 		\item $s^p_i \in \{0, 1\}$ indicates if the loop of the pigeon $p$ started at node $i$, and
-		\item $0 \leq U^p_i \leq |N^p|$ is an MTZ(cite) like potential for each node $i$ and pigeon $p$,
+		\item $0 \leq U^p_i \leq |N^p|$ is an MTZ \cite{millerIntegerProgrammingFormulation1960} like potential for each node $i$ and pigeon $p$,
 	\end{enumerate}
 	and
 	\begin{enumerate}
@@ -111,7 +111,7 @@
 		\item constraint (\ref{eqs:air_cap}) enforces the pigeon capacity of pigeons,
 		\item constraint (\ref{eqs:max_length}) forces the travel distance of each pigeon to be less than L,
 		\item constraint (\ref{eqs:air_cycle}) forces the paths of pigeons to consist of cycles,
-		\item constraint (\ref{eqs:MTZ}) is an MTZ(cite) like constraint that forces only one simple cycle to exist, The main difference with MTZ is that the constraints are defined for all nodes but the node whose $s$ is $1$ will not have any active constraints as the right hand side will be at least $|N^p|$ thus practically disabling the constraints that contain that node,
+		\item constraint (\ref{eqs:MTZ}) is an MTZ like constraint that forces only one simple cycle to exist, The main difference with MTZ is that the constraints are defined for all nodes but the node whose $s$ is $1$ will not have any active constraints as the right hand side will be at least $|N^p|$ thus practically disabling the constraints that contain that node,
 		\item constraint (\ref{eqs:smax}) forces one of the $s^p_i$ to be $1$ when the pigeon is active,
 		\item constraint (\ref{eqs:flow_land}) is the flow conservation constraint on the mesh, and 
 		\item constraint (\ref{eqs:flow_air}) is the flow conservation constraint for the pigeons.
@@ -119,7 +119,7 @@
 
 
 	We while we assume that the pigeons are the same, it's fairly easy to extend all pigeon properties by an index $p$ to make them unique. Furthermore, we assume that for $a=0$ i.e. no pigeons are active, the problem is feasible. 
-	\section{Benders' ecomposition}
+	\section{Benders' decomposition}
 	
 	In the problem
 	\begin{mini!}
@@ -145,7 +145,7 @@
 	\end{mini!}
 	We now longer need the feasibility constraint because the sub-problem is never unbounded(assuming the original problem is bounded) as such the dual problem is never infeasible but is unbounded (infinity) at infeasible points. This forces the problem to be feasible
 	
-	(Cite benders) showed that this problem can be modeled as a finite number of cuts such that
+	\cite{bendersPartitioningProceduresSolving1962} showed that this problem can be modeled as a finite number of cuts such that
 	\begin{mini!}
 		{}{\theta + d \cdot y}{}{}
 		\addConstraint{\theta \geq}{(b - By)^\top  \pi,\label{benders:2:sp}}{\quad  \pi \in \mathcal{P}}
@@ -153,7 +153,7 @@
 	\end{mini!}
  	where $\mathcal{P}$ and $\mathcal{R}$ are the set of extreme points and extreme rays of (\ref{benders:3:sp}). We note that if $\bar{y}$ is the point where the cut was generated and $\theta^0$ is the objective of the dual (or the dual ray if it is unfeasible), we can write $(b - By)^\top  \pi$ as $\theta^0 - (By - B\bar{y})^\top  \pi$ since $\theta^0 + (B\bar{y})^\top \pi= b^\top \pi$. Since the number of cuts is finite, we can dynamically add those to the problem as needed i.e. when they become invalidated. The cuts are on the extreme rays are called feasibility cuts and are only needed when the sub-problem is not feasible.The problem that has the benders cut is called the master problem and the problem that is used to generate the cuts is called the sub-problem. 
  	
-	While benders original method would add these cuts at integer points, (cite inexact cuts) showed that the cuts can be added even in fractional points. Furthermore, (cite Mangati-Want) showed that if the cuts are generated with a core point and an additional constraint it will be non-dominated. (cite papadakos) showed that the additional constraint is not needed and we can take a moving average of $y^t$ as our core point. The choice of the moving average coefficient greatly changes the performance of the method. We use $l=0.001$ as our initial core-point and use $\eta=0.5$ as our moving average constant.
+	While benders original method would add these cuts at integer points, \cite{mcdanielModifiedBendersPartitioning1977} showed that the cuts can be added even in fractional points. Furthermore, \cite{magnantiAcceleratingBendersDecomposition1981} showed that if the cuts are generated with a core point and an additional constraint it will be non-dominated. \cite{papadakosPracticalEnhancementsMagnanti2008} showed that the additional constraint is not needed and we can take a moving average of $y^t$ as our core point. The choice of the moving average coefficient greatly changes the performance of the method. We use $l=0.001$ as our initial core-point (we set the variable to 0.001 for each arc) and use $\eta=0.5$ as our moving average constant.
 	
 	Our problem is a good candidate for benders decomposition as the constraints (\ref{eqs:flow_land}) and (\ref{eqs:flow_air}) only contain real variables and the constraint (\ref{eqs:air_cap}) is the only linking constraint between the integer and real variables. We note that we keep the $U$ in the master problem. This does not cause any problem on the theoretical level and helps reduce the number of infeasibility cuts. 
     When taking out $x$ and $y$ out of the master problem, we only need to add cuts for the constraints that have integer variables in them (otherwise they will just be zero). In the constraint(\ref{eqs:air_cap}) constraint matrix $B$ is the identity matrix times $q$. The cuts will be in the form of 
@@ -234,7 +234,7 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 	\begin{equation}
 		P = \{x | Ax \leq b\}
 	\end{equation}
-	and $\mu_1,\ldots,\mu_m$ are extreme rays of $P$. This is called the Dantzig-Wolfe decomposition (cite?) and has been shown (by whom?) that the new problem is equivalent to the old one. The interest of this process is when a small subset of extreme points are active or convexifying the constraint $Ax \leq b$ leads to a special problem that breaks down into small problems.
+	and $\mu_1,\ldots,\mu_m$ are extreme rays of $P$. This is called the Dantzig-Wolfe decomposition \parencite{dantzigDecompositionPrincipleLinear1960} and has been shown (by whom?) that the new problem is equivalent to the old one. The interest of this process is when a small subset of extreme points are active or convexifying the constraint $Ax \leq b$ leads to a special problem that breaks down into small problems.
 	
 	
 	
@@ -253,11 +253,11 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
  	\end{mini!}
  	where $Nx=b^k$ is the flow conservation constraint for $k$th commodity, $x^k_e \leq u_e$ is the arc capacity constraint and $c \geq 0$. The extreme points of $Nx=b^k$ are the paths from the source the destination of the commodity (with the flow equal to the demand), the extreme rays are cycles. We know this is true because any valid flow matrix can be broken into simple paths and cycles (elaborate?). Thus we can reformulate the problem in term of paths and cycles. We also note that we considers paths with unite flow instead of paths with demand flow to simplify the formulation. Let $v^k$ be the demand of the $k$th commodity. However, the set of cycles is very large and has non negative cost as $c \geq 0$ thus we don't need to consider them. Let $P^k$ be the set of possible paths for the commodity $k$, for path $p$, let $f(p)$ be the flow, $c(p)$ the cost and $\delta_e(p)$ an indicator of the presence of the arc $e$ in the path $p$. We can rewrite the problem in term of paths (or extreme points) as
  	\begin{mini!}{}{\sum_{k\in K, p \in P^k} c(p) f(p),}{}{}
- 		\addConstraint{\sum_{\quad k \in K, p \in P(k)} \delta_e(p)f(p) \leq}{u_e,}{\quad e \in E \label{path:cap}}
+ 		\addConstraint{\sum_{\quad k \in K, p \in P(k)} -\delta_e(p)f(p) \geq}{-u_e,}{\quad e \in E \label{path:cap}}
  		\addConstraint{\sum_{p \in P^k}f(p) =}{d^k,}{\quad k \in K. \label{path:cost}}
  		\addConstraint{f(p) \geq}{0,}{\quad k \in K, p \in P^k}
  	\end{mini!}
-	Due to large number of paths and many extremely useless paths, we use column generation to generate a subset of all the paths. Let $w_e$ be the dual variable of constraint (\ref{path:cap}) and $\sigma$ be the dual of (\ref{path:cost}), we can see that in this form the dual $w_{ij}$ is negativewhile $\sigma_k$ but will stay positive as it will be the least expensive used path ($\max \sum\sigma$ s.t. $\sigma^k \leq c(p)$). The reduced cost of a path $p \in P^k$ will be (the coef behind $A$ is positive because we usually have to negate it to get a standard form and then negative it again)
+	Due to large number of paths and many extremely useless paths, we use column generation to generate a subset of all the paths. Let $w_e$ be the dual variable of constraint (\ref{path:cap}) and $\sigma$ be the dual of (\ref{path:cost}), we can see that in this form the dual $w_{ij}$ and $\sigma_k$ are positive are positive. The second dual variable $\sigma$ will be the least expensive used path ($\max \sum\sigma$ s.t. $\sigma^k \leq c(p)$). Assuming we can split the rhs matrix into $A$ and $B$, the reduced cost of a path $p \in P^k$ is be
 	\begin{equation}
 		c(p) + A^\top w - B^\top \sigma,
 	\end{equation} 
@@ -265,11 +265,11 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 	\begin{equation}
 		\sum_{e \in E} \delta_e(p) (c_e + w_e) - \sigma^k.
 	\end{equation}
-	For any commodity $k$, this amounts to finding a shortest path with adjusted costs since $\sigma_k$ is constant. Since $w$ is positive, the cost will stay positive and we can use Djikstra (cite)'s algorithm to find the shortest path. At each iteration we'll a shortest path to the set of basis. While in theory we only need to add one path who has a negative reduced cost, this helps accelerate things.
+	For any commodity $k$, this amounts to finding a shortest path with adjusted costs since $\sigma_k$ is constant. Since $w$ is positive, the cost will stay positive and we can use Djikstra's algorithm \parencite{dijkstraNoteTwoProblems1959} to find the shortest path. At each iteration we'll a shortest path to the set of basis. While in theory we only need to add one path who has a negative reduced cost, this helps accelerate things.
 	
 	While the usual approach is to use the revised simplex method and to discard the generated columns when they go out of the basis, we use a solver and keep those in case they become useful later on. 
 	
-	To initialize the problem let $M$ be a number strictly greater than the objective of the function, we add an auxiliary variable for each commodity such that the cost of this commodity is $M/d^k$ and the coef in the constraint (\ref{16c}) is (each variable appears once in the corresponding constraint). This allows to not start from a set of feasible columns. Furthermore, the initial set of column is generated via the Ford-Fulkerson(cite). 
+	To initialize the problem let $M$ be a number strictly greater than the objective of the problem, we add an auxiliary variable for each commodity such that the cost of this commodity is $M/d^k$ and the coef. in the constraint (\ref{path:cost}) is 1. This allows to not start from a set of feasible columns. This is an adaptation of the so called two phase method \parencite{wagnerTwoPhaseMethodSimplex1956}. Furthermore, the initial set of column is generated via the Ford-Fulkerson algorithm \parencite{fordMaximalFlowNetwork1956}. 
 	
 	\section{Computational Study}
 	
@@ -296,10 +296,13 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 		%		\centering
 		%\Rotatebox{90}
 		\makebox[\linewidth]{
-			\begin{tabular}{S[table-format=3] S[table-format=4] S[table-format=1.1] 
-			S[table-format=1.1]
-			S[table-format=1.1]
-			S[table-format=1.1]}
+			\begin{tabular}{
+					S[table-format=3] 
+					S[table-format=4] 
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]}
 				\toprule
 				{$n$} & {$m$}   & 
 				{col-Gurobi} & 
@@ -307,14 +310,29 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 				{Gurobi} &
 				{CPLEX} 				\\
 				\midrule
-6 & 10 & 0.0 & 0.0 & 0.0 & 0.0 \\
-6 & 100 & 0.0 & 0.0 & 0.0 & 0.1 \\
-6 & 500 & 0.0 & 0.0 & 0.3 & 0.3 \\
-6 & 1000 & 0.1 & 0.1 & 0.9 & 1.1 \\
-11 & 10 & 0.0 & 0.0 & 0.0 & 0.0 \\
-11 & 100 & 0.0 & 0.0 & 0.2 & 0.2 \\
-11 & 500 & 0.0 & 0.0 & 1.6 & 1.6 \\
-11 & 1000 & 0.1 & 0.1 & 4.1 & 3.7 \\
+6        &        10     &        0.01           &        0.00           &        0.01           &        0.01  \\ 
+6        &        100    &        0.01           &        0.01           &        0.06           &        0.06  \\ 
+6        &        500    &        0.03           &        0.02           &        0.36           &        0.31  \\ 
+6        &        1000   &        0.08           &        0.04           &        0.73           &        1.64  \\ 
+11       &        10     &        0.02           &        0.02           &        0.03           &        0.02  \\ 
+11       &        100    &        0.02           &        0.01           &        0.21           &        0.22  \\ 
+11       &        500    &        0.04           &        0.03           &        1.54           &        2.15  \\ 
+11       &        1000   &        0.07           &        0.05           &        3.48           &        5.10  \\ 
+21       &        10     &        0.08           &        0.06           &        0.10           &        0.07  \\ 
+21       &        100    &        0.03           &        0.03           &        1.27           &        1.11  \\ 
+21       &        500    &        0.17           &        0.17           &        9.76           &        16.67  \\ 
+21       &        1000   &        0.58           &        0.12           &        24.53          &        42.58  \\ 
+31       &        10     &        0.16           &        0.18           &        0.28           &        0.29  \\ 
+31       &        100    &        0.11           &        0.11           &        4.17           &        9.38  \\ 
+31       &        500    &        0.27           &        0.28           &        33.35          &        71.22  \\ 
+31       &        1000   &        0.54           &        0.48           &        81.68          &        164.64  \\ 
+41       &        10     &        1.54           &        2.19           &        0.81           &        0.90  \\ 
+41       &        100    &        0.33           &        0.34           &        9.47           &        48.59  \\ 
+41       &        500    &        0.29           &        0.32           &        91.74          &        135.12  \\ 
+41       &        1000   &        0.65           &        0.54           &        238.36         &        318.68  \\ 
+51       &        10     &        6.62           &        4.85           &        4.31           &        1.71  \\ 
+51       &        100    &        0.40           &        0.40           &        28.12          &        74.64  \\ 
+51       &        500    &        1.10           &        1.04           &        188.53         &        347.60  \\ 
 				
 				\bottomrule
 			\end{tabular}
@@ -329,28 +347,116 @@ where $\mathcal{P}$ and $\mathcal{R}$ are the extreme cones and rays with their 
 			\begin{tabular}{
 					S[table-format=3] 
 					S[table-format=4]
-					S[table-format=1.1]
-					S[table-format=1.1]
-					S[table-format=1.1]
-					S[table-format=1.1]
-					S[table-format=1.1]
+					S[table-format=2]
+					S[table-format=2]					
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+					S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
 				}
 				\toprule
-				{$n$} & {$m$}   & 
-				{BGD} & 
+				{$n$} & {$m$}   & {s} & {p} &
+				{BDW}  & 
 				{BGG} &
 				{BGC} &
-				{Gurobi} & {CPLEX} 				\\
+				{Gurobi} & 
+				{CPLEX} 				
+				\\
 				\midrule
-6 & 10 & 0.0 & 0.1 & 0.1 & 0.0 & 0.0 \\
- & 100 & 0.1 & 1.0 & 0.9 & 0.2 & 0.2 \\
- & 500 & 0.4 & 4.7 & 7.5 & 1.4 & 1.4 \\
- & 1000 & 0.2 & 23.3 & 34.4 & 28.8 & 28.4 \\				
+6 & 10 & 10 & 1 &  0.0  &  0.1  &  0.1  &  0.0  &  0.1  \\ 
+6 & 10 & 10 & 5 &  0.1  &  0.4  &  0.3  &  0.1  &  0.1  \\ 
+6 & 10 & 10 & 10 &  0.1  &  0.3  &  0.3  &  0.1  &  0.1  \\ 
+6 & 10 & 5 & 1 &  0.1  &  0.1  &  0.1  &  0.0  &  0.0  \\ 
+6 & 10 & 5 & 5 &  0.1  &  0.4  &  0.3  &  0.0  &  0.1  \\ 
+6 & 10 & 5 & 10 &  0.1  &  0.4  &  0.4  &  0.1  &  0.1  \\ 
+6 & 100 & 10 & 1 &  0.1  &  0.8  &  0.7  &  0.2  &  0.2  \\ 
+6 & 100 & 10 & 5 &  0.2  &  1.8  &  1.7  &  0.4  &  0.6  \\ 
+6 & 100 & 10 & 10 &  0.2  &  2.3  &  2.2  &  0.8  &  1.7  \\ 
+6 & 100 & 5 & 1 &  0.1  &  0.9  &  0.7  &  0.2  &  0.2  \\ 
+6 & 100 & 5 & 5 &  0.2  &  1.8  &  1.7  &  0.4  &  0.7  \\ 
+6 & 100 & 5 & 10 &  0.2  &  2.4  &  2.1  &  0.8  &  1.6  \\ 
+6 & 500 & 10 & 1 &  0.3  &  4.3  &  6.3  &  1.1  &  1.4  \\ 
+6 & 500 & 10 & 5 &  0.5  &  18.4  &  11.1  &  10.1  &  9.7  \\ 
+6 & 500 & 10 & 10 &  0.6  &  10.2  &  12.8  &  86.6  &  11.4  \\ 
+6 & 500 & 5 & 1 &  0.3  &  4.2  &  6.3  &  1.2  &  1.4  \\ 
+6 & 500 & 5 & 5 &  0.5  &  18.4  &  11.2  &  10.4  &  9.8  \\ 
+6 & 500 & 5 & 10 &  0.5  &  10.0  &  15.5  &  114.7  &  13.6  \\ 
+6 & 1000 & 10 & 1 &  0.2  &  18.5  &  23.9  &  16.6  &  6.4  \\ 
+6 & 1000 & 10 & 5 &  0.3  &  74.9  &  77.0  &  596.3  &  35.8  \\ 
+6 & 1000 & 10 & 10 &  0.4  &  196.0  &  229.1  &  0.0\,\si{\percent}  &  114.7  \\ 
+6 & 1000 & 5 & 1 &  0.2  &  17.6  &  23.6  &  16.7  &  6.4  \\ 
+6 & 1000 & 5 & 5 &  0.3  &  74.0  &  76.9  &  598.7  &  36.3  \\ 
+6 & 1000 & 5 & 10 &  0.4  &  196.0  &  228.7  &  0.0\,\si{\percent}  &  116.3  \\ 
+11 & 10 & 10 & 1 &  0.1  &  0.8  &  0.5  &  0.1  &  0.1  \\ 
+11 & 10 & 10 & 5 &  1.2  &  1.1  &  0.8  &  0.5  &  0.7  \\ 
+11 & 10 & 10 & 10 &  4.2  &  0.8  &  1.4  &  1.3  &  1.3  \\ 
+11 & 10 & 5 & 1 &  0.2  &  0.9  &  0.6  &  0.1  &  0.1  \\ 
+11 & 10 & 5 & 5 &  1.2  &  1.1  &  0.8  &  0.6  &  0.7  \\ 
+11 & 10 & 5 & 10 &  4.3  &  0.9  &  1.4  &  1.3  &  1.3  \\ 
+11 & 100 & 10 & 1 &  0.4  &  7.6  &  14.7  &  1.1  &  2.1  \\ 
+11 & 100 & 10 & 5 &  1.7  &  18.3  &  55.9  &  111.1  &  22.3  \\ 
+11 & 100 & 10 & 10 &  5.9  &  24.2  &  18.9  &  75.3  &  223.5  \\ 
+11 & 100 & 5 & 1 &  0.3  &  7.6  &  14.1  &  1.1  &  2.1  \\ 
+11 & 100 & 5 & 5 &  1.7  &  18.0  &  54.8  &  111.0  &  21.8  \\ 
+11 & 100 & 5 & 10 &  6.0  &  23.7  &  19.0  &  76.6  &  222.3  \\ 
+
+
+
 				\bottomrule
 			\end{tabular}
 		}
-		\caption{Time/duality gap comparison between different approaches. First 3 columns are Benders decomposition, the G denotes that they master problem was solved with Gurobi and the last letter shows what solver solved the sub-problem(C for CPLEX, D for Column Generation on the Dantzig-Wolfe decomposition). If the solver reached optimality, only the time was reported otherwise the time and the GAP was reported (with a time limit of 10 minutes). In all cases $s$ is 5 and $P$ is 1.}
+		\caption{Time/duality gap comparison between different approaches with a time limit of 10 minutes. First 3 columns are Benders decomposition, the subproblem was solved by Column Generation (DW), Gurobi (G), or CPLEX (C). If the solver reached optimality, only the time was reported otherwise  the GAP, in percentage, was reported. Empty means no primal solution or very large optimality gap by the solver.}
 	\end{table}
+	\begin{table}[h]\label{t:4}
+	\sisetup{detect-all}
+	%		\centering
+	%\Rotatebox{90}
+	\makebox[\linewidth]{
+		\begin{tabular}{
+				S[table-format=3] 
+				S[table-format=4]
+				S[table-format=2]
+				S[table-format=2]					
+				S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+				S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+				S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+				S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+				S[table-format=3.1, table-space-text-post=\si{\,\%}\ ]
+			}
+			\toprule
+			{$n$} & {$m$}   & {s} & {p} &
+			{BDW}  & 
+			{BGG} &
+			{BGC} &
+			{Gurobi} & 
+			{CPLEX} 				
+			\\
+			\midrule
+11 & 500 & 10 & 1 &  1.8  &  329.1  &  189.4  &  153.8  &  68.4  \\ 
+11 & 500 & 10 & 5 &  4.4  &  361.1  &  405.0  &  44.4\,\si{\percent}  &  0.0\,\si{\percent}  \\ 
+11 & 500 & 10 & 10 &  14.1  &  33.7\,\si{\percent}  &  21.1\,\si{\percent}  &  &  27.4\,\si{\percent}  \\ 
+11 & 500 & 5 & 1 &  1.8  &  332.7  &  189.5  &  159.9  &  68.9  \\ 
+11 & 500 & 5 & 5 &  4.4  &  371.3  &  403.1  &  44.4\,\si{\percent}  &  0.0\,\si{\percent}  \\ 
+11 & 500 & 5 & 10 &  14.1  &  33.7\,\si{\percent}  &  21.1\,\si{\percent}  &  &  27.4\,\si{\percent}  \\ 
+			11 & 1000 & 10 & 1 &  15.6  &  48.8\,\si{\percent}  &  259.7  &  7.9\,\si{\percent}  &  413.3  \\ 
+			11 & 1000 & 10 & 5 &  23.2  &  726.8  &  37.8\,\si{\percent}  &  &  26.8\,\si{\percent}  \\ 
+			11 & 1000 & 10 & 10 &  120.3  &  100.0\,\si{\percent}  &  100.0\,\si{\percent}  &  &  44.7\,\si{\percent}  \\ 
+			11 & 1000 & 5 & 1 &  15.3  &  48.8\,\si{\percent}  &  257.8  &  7.9\,\si{\percent}  &  405.3  \\ 
+			11 & 1000 & 5 & 5 &  22.4  &  719.8  &  37.8\,\si{\percent}  &  &  26.8\,\si{\percent}  \\ 
+			11 & 1000 & 5 & 10 &  118.8  &  100.0\,\si{\percent}  &  100.0\,\si{\percent}  &  &  44.7\,\si{\percent}  \\ 
+			21 & 10 & 10 & 1 &  2.3  &  4.9  &  3.6  &  0.6  &  1.0  \\ 
+			21 & 10 & 10 & 5 &  27.7  &  11.4  &  5.6  &  11.6  &  8.3  \\ 
+			21 & 10 & 10 & 10 &  144.3  &  13.9  &  5.9  &  26.3  &  17.4  \\ 
+			21 & 10 & 5 & 1 &  2.3  &  5.0  &  3.5  &  0.5  &  1.0  \\ 
+			21 & 10 & 5 & 5 &  27.5  &  11.3  &  5.4  &  11.7  &  8.3  \\ 
+			21 & 10 & 5 & 10 &  144.8  &  14.2  &  5.9  &  26.0  &  17.4  \\ 
+			
+			\bottomrule
+		\end{tabular}
+	}
+	\caption{Time/duality gap comparison, part 2.}
+\end{table}
 \section{Conclusion}
 We proposed a new benchmark that solvers don't seem to handle very well by default and solved it with Benders and Dantzig-Wolfe decomposition.
 \printbibliography

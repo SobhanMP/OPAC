@@ -1,4 +1,4 @@
-module Opaac
+module OPAC
 using Infiltrator, Cthulhu, StatsBase, Graphs, LinearAlgebra
 using StaticGraphs, CPLEX, SparseArrays, Distributions, MetaGraphs
 using JuMP, Gurobi, DataStructures, Luxor
@@ -11,44 +11,54 @@ const E = edges
 
 const GRB_ENV = Ref{Gurobi.Env}()
 
+"trick to initalize GRB_ENV at runtime"
 function __init__()
     global GRB_ENV[] = Gurobi.Env()
 end
 
-multiflow_gurobi() = direct_model(
+"direct model with default gurobi configuration"
+multiflow_gurobi(time=600.0) = direct_model(
     optimizer_with_attributes(
         () -> Gurobi.Optimizer(GRB_ENV[]), 
         "OutputFlag" => 0, 
         "Threads" => 8,
         "Method" => 1,
-        "TimeLimit" => 600))
+        "TimeLimit" => time))
 
-multiflow_cplex() = direct_model(
+"direct model with default cplex configuration"
+multiflow_cplex(time=600.0) = direct_model(
     optimizer_with_attributes(
         CPLEX.Optimizer, 
-        "CPXPARAM_TimeLimit" => 600, 
+        "CPXPARAM_TimeLimit" => time, 
         "CPX_PARAM_THREADS" => 8,
         "CPXPARAM_ScreenOutput" => 0))
 
+"standard holder for demands"
 struct Demand
     o :: Int
     d :: Int
     v :: Int
 end
 
+
 @inline besparse(adj::Union{Graph,MetaDiGraph}, x) = besparse(make_adj_matrix(adj), x)
+"make a new sparse matrix with non zero entries filled with `x`"
 @inline besparse(adj::SparseMatrixCSC, x::T) where {T<:Real} =
     besparse(adj, fill(x, length(adj.nzval)))
+"make a new sparse matrix with the nzval replaced with `x`"
 @inline besparse(adj::SparseMatrixCSC, x::Vector{T}) where {T} =
     SparseMatrixCSC{T,Int}(adj.m, adj.n, adj.colptr, adj.rowval, x)
+"make a vector of sparse matrix with the nzval replaced with `x[:, i]`"
 @inline besparse(adj::SparseMatrixCSC, x::Matrix{T}) where {T} = [
     SparseMatrixCSC{T,Int}(adj.m, adj.n, adj.colptr, adj.rowval, x[:, i]) for
     i = 1:size(x, 2)
 ]
+"make a matrix of sparse matrix with the nzval replaced with `x[:, i, j]`"
 @inline besparse(adj::SparseMatrixCSC, x::Array{T,3}) where {T} = [
     SparseMatrixCSC{T,Int}(adj.m, adj.n, adj.colptr, adj.rowval, x[:, i, j]) for
     i = 1:size(x, 2), j = 1:size(x, 3)
 ]
+
 
 @inline Base.getindex(g::AbstractMetaGraph, i::Int) = props(g, i)
 @inline Base.getindex(g::AbstractMetaGraph, i::Int, j::Int) = props(g, i, j)
@@ -63,13 +73,14 @@ end
 @inline Base.setindex!(g::AbstractMetaGraph, v, i::Int, j::Int, s::Symbol) = set_prop!(g, i, j, s, v)
 @inline Base.setindex!(g::AbstractMetaGraph, v, e::Edge, s::Symbol) = set_prop!(g, e, s, v)
 
+"convert (x, y) cordinate to lienar ones"
 @inline to_ind(x, y, i, j) = begin
     @assert i >= 1 && i <= x
     @assert j >= 1 && j <= y
     (i - 1) * y + j 
 end
 
-
+"problem instance, since the air graph is not fixed, we don't store it"
 struct Instance{I, V}
     lg::MetaDiGraph{I, V}
     D::Vector{Demand}
@@ -77,6 +88,7 @@ struct Instance{I, V}
     download_cost::Int
     air_cap::Int
 end
+
 Base.:(==)(x::Instance{I, V}, y::Instance{I, V}) where {I, V} = x.lg == y.lg && 
     x.D == y.D && 
     x.upload_cost == y.upload_cost && 
@@ -105,6 +117,7 @@ function write_instance(fn, inst::Instance)
     nothing
 end
 
+"read one line from the standard output and covnert it to type, use array of types for different types"
 readL(fd, type=Int) = parse.(type, split(readline(fd)))
 
 load_instance(fn) = open(fn, "r") do fd
@@ -160,7 +173,7 @@ load_planar(fn) = open(fn, "r") do fd
         lg, D
     end
     
-
+"add new edges with random cap/cost"
 function add_land_edge(graph, a, b, cap_range, cost_range) 
     add_edge!(graph, a, b)
     set_prop!(graph, a, b, :cap, rand(cap_range))
@@ -171,7 +184,7 @@ function add_land_edge(graph, a, b, cap_range, cost_range)
                 graph[a][:y] - graph[b][:y])))
     nothing
 end
-
+"add new edges w/o random cap/cost"
 function add_land_edge(graph, a, b) 
     add_edge!(graph, a, b)
     set_prop!(graph, a, b, :length,
@@ -190,6 +203,7 @@ struct LazyDijkstraState{T<:Real,U<:Integer}
     q::PriorityQueue{U,T, Base.Order.ForwardOrdering}
 end
 
+"store key on arcs as a sparse graph"
 function graph_sparse_weight(g; key=:time, n=nv(g))
     w = spzeros(n, n)
     for i in vertices(g), j in inneighbors(g, i)
@@ -198,6 +212,7 @@ function graph_sparse_weight(g; key=:time, n=nv(g))
     w
 end
 
+"DFS to see if a node t is reachable while not visiting any already visited node(bool vec)"
 function can_reach(g, s, t, visited)
     s == t && return true
     reach = fill(false, nv(g))
@@ -221,7 +236,7 @@ function can_reach(g, s, t, visited)
     return false
    
 end
-
+"dijkstra on a grid"
 function edge_dist(g, t)
     dist = fill(typemax(Int), nv(g))
     dist[t] = 0
@@ -289,6 +304,7 @@ function gen_instance(g, n, s, v, d)
     g, [Demand(k..., v) for (k, v) in D]
 end
 export random_walk
+"new lazy dijkstra state"
 function new_state(g, src::U, ::AbstractMatrix{T}) where {T,U}
     state = LazyDijkstraState{T,U}(
         src,
@@ -307,7 +323,13 @@ struct AllArcS end
 const AllArc = AllArcS()
 @inline valid(::AllArcS, _, _) = true
 
+"""
+Dijkstra algorithm from src to dst, 
+if lazy is true the algorithm will no calculate all of the dist
+and will stop early,
+filter is a function that can disable arcs dynamically, assumed to be deterministic wrt to its input
 
+"""
 function lazy_dijkstra(
     g::AbstractGraph,
     src::I,
@@ -353,6 +375,7 @@ function lazy_dijkstra(
     end
     return distance[dst], state
 end
+
 function ford_fulkerson(mg, lg_adj, lg_cap, lg, ag_adj, ag, l, o, d, v, w, P, air_cap)
     paths = Vector{Int}[]
     flows = Int[]
@@ -401,7 +424,7 @@ function ford_fulkerson(mg, lg_adj, lg_cap, lg, ag_adj, ag, l, o, d, v, w, P, ai
     end
     paths, (flow=flows, lx=lx, ax=ax, cost=cost)
 end
-
+"convert dijkstra state to paths"
 function dijkstra_to_path(
     pred::AbstractVector{U}, 
     s::U, t::U) where {U}
@@ -422,7 +445,7 @@ end
         state.parent, s, t)
 
 
-
+"make a highlevel graph by stacking the graph ag P times on the graph lg"
 function combgraph(lg, ag, a2l, P; download_cost, upload_cost)
     mg =  MetaDiGraph(P * nv(ag) + nv(lg))
     for e in E(lg)
@@ -488,7 +511,7 @@ function mk_land_graph(x, y; cap_range, cost_range)
     end
     lg
 end
-
+"make the air graph corresponding to the grid"
 function mk_air_graph(x, y, skip)
     ag = mk_grid(x, y)
     for i in 1:skip:x,
@@ -508,7 +531,7 @@ function mk_air_graph(x, y, skip)
     ag, a2l, l2a
 end
 
-
+"faster sum for jump variables, i think"
 function sum_affine(x, acc = AffExpr(0.0))
     for i in x
         add_to_expression!(acc, i)
@@ -516,7 +539,7 @@ function sum_affine(x, acc = AffExpr(0.0))
     acc
 end
 
-
+"Solve problem on land (l=0)"
 function init_solve_land(D::Vector{Demand},
     lg; 
     feas_only=false, 
@@ -552,7 +575,10 @@ function init_solve_land(D::Vector{Demand},
     optimize!(model)
     (model=model, x=x, dem=dem)
 end
-        
+"""
+prepare a solver to solve problem on land (l=0),
+the weights have to be given afterwards
+"""
 function init_solve_land(K,
     lg; 
     feas_only=false, 
@@ -588,17 +614,17 @@ function init_solve_land(K,
 
     (model=model, x=x, dem=dem)
 end
-
-
+"helper for init_solve_land"
 function set_comodity_demand(state, o, d, v, k)
     set_normalized_rhs(state.dem[k, o], -v)
     set_normalized_rhs(state.dem[k, d], v)
 end
+"helper for init_solve_land"
 function set_comodity_var(state, o, d, k, u, v=1)
     set_normalized_coefficient(state.dem[k, o], u, v)
     set_normalized_coefficient(state.dem[k, d], u, -v)
 end
-
+"solve the OPAC with a solver"
 function solve(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, air_cap=10_000, L=4000, 
     model = multiflow_gurobi(),
     lg_adj=make_adj_matrix(lg),
@@ -678,7 +704,7 @@ rep(((x_min, x_max), (y_min, y_max), (im_x, im_y), (mar_x, mar_y)), x, y) = Poin
 )
 
 source_sink(d, i) = ((i == d.o) - (i == d.d)) * d.v
-
+"transformations information to plot the graph"
 function mkstate(g)
     x = extrema(V(g)) do v
         g[v][:x]
@@ -688,6 +714,7 @@ function mkstate(g)
     end
     (x, y, (1000, 1000), (20, 20)), (1040, 1040)
 end
+"ecol and vcol give the color of the edge"
 function draw_plot(g; vcol=(g, i)->(0, 0, 0, 0.5), ecol=(g, i, j)->(0, 0, 0, 0.5), fil=(g, x, y) -> true, ps=2, fn=:png)
     state, img_s = mkstate(g)
     
@@ -722,6 +749,7 @@ function make_adj_matrix(ag)
     end
     adj_matrix
 end
+"helper for the solver, caclualte the total download - upload for a commondity k"
 uplink(P, l2a, d, u, k, v) = if v ∈ keys(l2a)
     let i = l2a[v]
         sum(d[p, k, i] - u[p, k, i] for p in 1:P)
@@ -730,6 +758,7 @@ else
     0
 end
 # TODO, make non allocating
+"benders subproblem solver (multicomodity flow) with respective dual vector"
 function subproblem(D::Vector{Demand}, P, lg, ag, l2a, air_cap, l; 
         ag_adj=make_adj_matrix(ag), 
         lg_adj=make_adj_matrix(lg),
@@ -778,20 +807,25 @@ function subproblem(D::Vector{Demand}, P, lg, ag, l2a, air_cap, l;
     
     optimize!(model)
 
-    @assert termination_status(model) ∈ (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
-    cond = (dual.(con_))
+    if has_values(model)
+    # @assert termination_status(model) ∈ (MOI.OPTIMAL, MOI.ALMOST_OPTIMAL)
+        cond = (dual.(con_))
 
-    return (
-        θ = objective_value(model),
-        π = besparse(ag_adj, cond)
-    )
+        return (
+            θ = objective_value(model),
+            π = besparse(ag_adj, cond)
+        )
+    else
+        return nothing
+    end
 end
-
+"benders master problem"
 function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, air_cap=10_000, L=4000,
     adj_matrix = make_adj_matrix(ag),
     model = multiflow_gurobi(),
     inner_model::F=multiflow_gurobi,
     ag_length=graph_sparse_weight(ag, key=:length),
+    inner_time=600,
     K = length(D),
     upload_cost,
     download_cost) where F
@@ -827,6 +861,7 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
     l_i = [besparse(adj_matrix, 0.001) for _ in 1:P]
     l_k = zeros(ne(ag), P)
     lg_adj = make_adj_matrix(lg)
+
     function my_callback(cb_data)
         η = .5
         begin
@@ -836,8 +871,11 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
             end
             ret = subproblem(D, P, lg, ag, l2a, air_cap, l_i;
                 ag_adj=adj_matrix, lg_adj=lg_adj,
-                upload_cost=upload_cost, download_cost=download_cost, model=inner_model())
-
+                upload_cost=upload_cost, download_cost=download_cost, 
+                model=inner_model(inner_time))
+            if ret === nothing
+                return
+            end
             cut = @build_constraint( 
                 sum_affine((-air_cap * ret.π[p].nzval[i] * (l[p].nzval[i] - l_i[p].nzval[i])
                     for p=1:P for i=1:ne(ag)), 
@@ -853,12 +891,13 @@ function master_problem(D::Vector{Demand}, P::Int, lg, ag, l2a; air_cost=1_000, 
 end
 
 
-
+"benders master problem, using colgen"
 function master_colgen(D::Vector{Demand}, P::Int, mg, lg, ag, l2a; air_cost=1_000, air_cap=10_000, L=4000,
     adj_matrix = make_adj_matrix(ag),
     model = multiflow_gurobi(),
     ag_length=graph_sparse_weight(ag, key=:length),
     K = length(D),
+    inner_time=600,
     upload_cost,
     download_cost)
     @variables(model, begin
@@ -905,6 +944,7 @@ function master_colgen(D::Vector{Demand}, P::Int, mg, lg, ag, l2a; air_cost=1_00
     for i in l_i
         i.nzval .= 0.001
     end
+    
     function my_callback(cb_data)
         η = .5
         begin
@@ -913,7 +953,10 @@ function master_colgen(D::Vector{Demand}, P::Int, mg, lg, ag, l2a; air_cost=1_00
                 l_i[p].nzval .= (1 - η) .* l_i[p].nzval .+ η .* clamp.(l_k[:, p], 0.0, 1.0)
             end
 
-            s = colgen(init_colgen(D, mg, lg, ag, l_i, 0, upload_cost, download_cost; ps=deepcopy(p0), air_cap=air_cap))
+            s = colgen(init_colgen(D, mg, lg, ag, l_i, 0, 
+                upload_cost, download_cost; 
+                ps=deepcopy(p0), air_cap=air_cap, 
+                model=multiflow_gurobi(inner_time)))
 
             cut = @build_constraint(sum_affine((
                 -air_cap * s.ag.d[p].nzval[i] * (l[p].nzval[i] - l_i[p].nzval[i])
@@ -931,7 +974,7 @@ function master_colgen(D::Vector{Demand}, P::Int, mg, lg, ag, l2a; air_cost=1_00
 end
 
 
-
+"convert loop free flow to paths"
 function x_to_path(o, d, g, x)
     ps = [Int[]]
     if d == o
@@ -973,8 +1016,9 @@ x_to_path(d::AbstractArray{Demand}, g, x, k) = x_to_path(d[k].o, d[k].d, g, x[k]
 x_to_path(d::Demand, g, x, k) = x_to_path(d.o, d.d, g, x)
 
 
-
+"utility to convert [a, b, c] to [(a, b), (b, c)]"
 @inline make_pair(p) = zip(p, @view p[2:end])
+"calculate cost of path"
 function path_cost(w::AbstractMatrix{T}, p) where T
     cost = zero(T)
     for (i, j) in make_pair(p)
@@ -982,6 +1026,7 @@ function path_cost(w::AbstractMatrix{T}, p) where T
     end
     cost 
 end
+"special strucutre to calculate the cost of a path on the merged graph WITH ADJUSTED COST"
 struct RWM <: AbstractMatrix{Float64}
     c::SparseMatrixCSC{Float64, Int}
     wl::SparseMatrixCSC{Float64, Int}
@@ -1008,6 +1053,7 @@ end
     end
 
 end
+"special strucutre to calculate the cost of a path on the merged graph with ORIGINAL COST"
 struct RC <: AbstractMatrix{Float64}
     c::SparseMatrixCSC{Float64, Int}
     n::Int
@@ -1024,15 +1070,26 @@ Base.size(w::RC) = (w.n, w.n)
         r.download_cost
     end
 end
-
+"find the correspoding pigeon and air graph given the arc"
 function split_air(nvag::Int, nvlg::Int, i::Int, j::Int)
     idp, irp = divrem(i - nvlg - 1, nvag) .+ (1, 1)
     jdp, jrp = divrem(j - nvlg - 1, nvag) .+ (1, 1)
     @assert idp == jdp
     (idp, irp, jrp) :: NTuple{3, Int}
 end
-
+"helper for type stability"
 @inline float_dual(x) = (dual(x)::Float64)
+"""
+D: demands
+mg: merged graph
+lg: land graph
+ag: air graph
+ub: upper bound 
+    - if nothing, we initialize with only phase 1 variables, 
+    - if non zero we initialize with both phase variables, and 
+    - if 0, we don't use phase 1 variables)
+
+"""
 
 function init_colgen(D, mg, lg, ag, l, ub, upload_cost, download_cost;
     P = length(l),
@@ -1144,7 +1201,7 @@ function load_dual(state)
     state.π .= dual.(state.dem)
     nothing
 end
-
+"add new col to model"
 function register_path(state, dem, p, f)
     set_normalized_coefficient(dem, f, 1)
     for (i, j) in make_pair(p)
@@ -1213,9 +1270,10 @@ function add_path(phase, s)
 end
 
 # TODO parallelize djikstra
-function colgen(state)
+function colgen(state; max_time=Inf64)
     model, phase1 = state.model, state.phase1
     phase = state.ub == 0 ? 2 : 1
+    now = time()
     for iter in 1:100
         if phase == 1 && maximum(value, phase1)  < 1e-10
             if state.ub === nothing
@@ -1233,13 +1291,16 @@ function colgen(state)
             load_dual(state)
             break
         end
+        if time() - now >= max_time
+            break
+        end
         if new_path == 0            
             (phase != 1 || maximum(value, phase1) < 1e-10) && break
         else
             load_dual(state)
         end
     end
-    @assert phase == 2
+    phase != 2 && println("phase 1!!!")
     state
 end
 export colgen, init_colgen
