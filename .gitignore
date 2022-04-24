@@ -1,0 +1,14 @@
+*.log
+*.log
+**dump
+machine_file
+**.jld
+**.png
+0*.txt
+**.aux
+**bbl
+**bcf
+**blg
+**xml
+**synctex.gz
+**.txt
