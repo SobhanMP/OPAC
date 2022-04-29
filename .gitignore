@@ -12,3 +12,5 @@ machine_file
 **xml
 **synctex.gz
 **.txt
+**.fdb_latexmk
+**.fls
