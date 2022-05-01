@@ -44,26 +44,12 @@ function fun_benders_gen(inst, P, mg, ag, l2a, m)
     obj_if(model)
 end
 
-function fun_benders(inst, P, mg, ag, l2a, m, im)
-    model = master_problem(inst.D, P, inst.lg, ag, l2a; 
-        air_cost=air_cost, air_cap=air_cap, L=L, 
-        model=m, download_cost=inst.download_cost, upload_cost=inst.upload_cost, inner_model=im)
-    obj_if(model)
-end
-
-
-
-function fun_native(inst, P, mg, ag, l2a, m)
-    model = solve(inst.D, P, inst.lg, ag, l2a, air_cap=air_cap, L=L, 
-        air_cost=air_cost, model=m(), upload_cost=inst.upload_cost, download_cost=inst.download_cost)
-   obj_if(model)    
-end
 
 
 
 
 function show_table(res; show_loss=false)
-    k = ["BD", "BGG", "BGC", "Gurobi", "CPLEX"]
+    k = ["BD"]
     join([string(hk.n) * " & " * string(hk.m) * " & " * string(hk.s) * " & " * string(hk.p) * " & " * join([
     begin
         j = (mode=i, hk...)
@@ -96,10 +82,6 @@ end
  # warmup
 @time let (inst, P, mg, ag, l2a) = load_inst(inst_list[inst_ind], 5, 3)
     fun_benders_gen(inst, 3, mg, ag, l2a, multiflow_gurobi())
-    for im in [multiflow_gurobi, multiflow_cplex]
-        fun_benders(inst, 3, mg, ag, l2a, multiflow_gurobi(), im) 
-        fun_native(inst, 3, mg, ag, l2a, im)
-    end
 end
 
 function main(inst_list, fn, res)
@@ -123,49 +105,6 @@ function main(inst_list, fn, res)
                 end
             end
         end
-        for (m, ms) in [(multiflow_gurobi, "G")],
-            (im, ims) in zip([multiflow_gurobi, multiflow_cplex], ["G", "C"])
-            
-           
-            
-            let kn = (mode="B"*ms*ims, n=i.n, m=i.m, s=s, p=p)
-                if kn ∉ keys(res)
-                
-                    try
-                        inst = load_instance(i.fn)
-                        t = @elapsed val = let (inst, P, mg, ag, l2a) = load_inst(i, 5, p)
-                            fun_benders(inst, P, mg, ag, l2a, m(), im) 
-                        end
-                        @show kn, t
-                        res[kn] = (time=t, val=val)
-                        fn !== nothing && serialize(fn, res)
-                    catch e
-                        @show e
-                    end
-                end
-            end
-        end
-        
-        for (m, ms) in zip([multiflow_gurobi, multiflow_cplex], ["Gurobi", "CPLEX"])
-            
-            
-            let kn = (mode=ms, n=i.n, m=i.m, s=s, p=p)
-                if kn ∉ keys(res)
-
-                    try
-                        inst = load_instance(i.fn)
-                        t = @elapsed val = let (inst, P, mg, ag, l2a) = load_inst(i, 5, p)
-                                fun_native(inst, P, mg, ag, l2a, m)
-                        end
-                        @show kn, t
-                        res[kn] = (time=t, val=val)
-                        fn !== nothing && serialize(fn, res)
-                    catch e
-                        @show e
-                    end
-                end
-            end
-        end
 
         w1 = show_table(deepcopy(res); show_loss=false)
         
@@ -186,8 +125,8 @@ end
 
 main(inst_list[[1]], nothing, Dict())
 
-main(inst_list, "runs.jld", try
-        deserialize("runs.jld")
+main(inst_list, "lims.jld", try
+        deserialize("lims.jld")
     catch e
         println("ignoring error ", e)
         Dict()
